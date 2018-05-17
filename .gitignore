@@ -1,0 +1,7 @@
+*.log
+*.properties
+pkg
+src/github.com
+
+.vscode
+.idea
