@@ -90,6 +90,17 @@ func handleListener(rw http.ResponseWriter, req *http.Request) {
 	logger.Noticef("SOURCE \"%s\": listener %s has joined", source.config.Path, lr.key)
 
 	rw.Header().Set("Content-Type", "audio/mpeg")
+	rw.Header().Set("icy-br", fmt.Sprintf("%d", source.config.Stream.Bitrate))
+	rw.Header().Set("icy-audio-info", fmt.Sprintf("bitrate=%d", source.config.Stream.Bitrate))
+	rw.Header().Set("icy-description", source.config.Stream.Description)
+	rw.Header().Set("icy-name", source.config.Stream.Name)
+	rw.Header().Set("icy-genre", source.config.Stream.Genre)
+	if source.config.Stream.Public {
+		rw.Header().Set("icy-pub", "1")
+	} else {
+		rw.Header().Set("icy-pub", "0")
+	}
+	rw.Header().Set("icy-url", source.config.Stream.URL)
 	rw.WriteHeader(200)
 
 	// Initial buffering

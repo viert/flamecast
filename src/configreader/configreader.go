@@ -38,6 +38,7 @@ type StreamDescription struct {
 	URL         string `json:"url"`
 	Genre       string `json:"genre"`
 	Description string `json:"description"`
+	Bitrate     int    `json:"bitrate"`
 }
 
 type SourceConfig struct {
@@ -233,6 +234,13 @@ func Load(filename string) (*Config, error) {
 
 			}
 		}
+
+		scfg.Stream.Name, _ = props.GetString(prefix + "source.name")
+		scfg.Stream.Description, _ = props.GetString(prefix + "source.description")
+		scfg.Stream.Bitrate, _ = props.GetInt(prefix + "source.bitrate")
+		scfg.Stream.Public, _ = props.GetBool(prefix + "source.public")
+		scfg.Stream.Genre, _ = props.GetString(prefix + "source.genre")
+		scfg.Stream.URL, _ = props.GetString(prefix + "source.site")
 
 		cfg.SourcesNameMap[sourceName] = scfg
 		cfg.SourcesPathMap[sourcePath] = scfg

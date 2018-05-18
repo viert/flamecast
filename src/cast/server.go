@@ -46,6 +46,7 @@ func Configure(cfg *configreader.Config) error {
 }
 
 func Start() error {
+	http.HandleFunc("/api/v1/sources", sourcesListHandler)
 	http.HandleFunc("/", sourceHandler)
 
 	for path, source := range sourcesPathMap {
