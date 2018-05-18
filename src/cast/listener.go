@@ -9,12 +9,12 @@ import (
 )
 
 const (
-	FrameBufferInitSize       = 128
-	FrameBufferPercentMin     = 0.5
-	FrameBufferPercentMaxWait = 0.7
-	TimeSyncIterMin           = 3
-	TimeSyncIterMax           = 5
-	TimeSyncInitialValue      = 100 * time.Millisecond
+	frameBufferInitSize       = 128
+	frameBufferPercentMin     = 0.5
+	frameBufferPercentMaxWait = 0.7
+	timeSyncIterMin           = 3
+	timeSyncIterMax           = 5
+	timeSyncInitialValue      = 100 * time.Millisecond
 )
 
 type Listener struct {
@@ -70,7 +70,7 @@ func NewListener(rw http.ResponseWriter, req *http.Request, sourcePath string) *
 		req,
 		sourcePath,
 		time.Now(),
-		make(chan *mp3.Frame, FrameBufferInitSize),
+		make(chan *mp3.Frame, frameBufferInitSize),
 		make([]byte, 8192),
 		fmt.Sprintf("%s:%s", req.RemoteAddr, sourcePath),
 	}
@@ -87,13 +87,15 @@ func handleListener(rw http.ResponseWriter, req *http.Request) {
 
 	lr := NewListener(rw, req, sourcePath)
 	source.listeners.Add(lr)
-	logger.Noticef("Listener %s has joined", lr.key)
+	logger.Noticef("SOURCE \"%s\": listener %s has joined", source.config.Path, lr.key)
 
 	rw.Header().Set("Content-Type", "audio/mpeg")
 	rw.WriteHeader(200)
 
 	// Initial buffering
-	wTime := timeSync(TimeSyncInitialValue, lr.frameBuffer)
+	logger.Debugf("SOURCE \"%s\": initial buffering stream for listener %s", source.config.Path, lr.key)
+	wTime := timeSync(timeSyncInitialValue, lr.frameBuffer)
+	logger.Debugf("SOURCE \"%s\": initial buffering complete for listener %s", source.config.Path, lr.key)
 
 	for {
 		wTime = timeSync(wTime, lr.frameBuffer)
@@ -101,12 +103,12 @@ func handleListener(rw http.ResponseWriter, req *http.Request) {
 
 		n, err := frame.Reader().Read(lr.dataBuffer)
 		if err != nil {
-			logger.Errorf("Error reading data from frame: %s", err)
+			logger.Errorf("SOURCE \"%s\": error reading data from frame: %s", source.config.Path, err)
 			break
 		}
 		_, err = rw.Write(lr.dataBuffer[:n])
 		if err != nil {
-			logger.Noticef("Listener %s has gone", lr.key)
+			logger.Noticef("SOURCE \"%s\": listener %s has gone", source.config.Path, lr.key)
 			break
 		}
 	}
@@ -115,18 +117,17 @@ func handleListener(rw http.ResponseWriter, req *http.Request) {
 
 func timeSync(waitTime time.Duration, frameBuffer chan *mp3.Frame) time.Duration {
 	// If buffer gets FrameBufferPercentMin full wait until it gets FrameBufferPercentMaxWait full
-	if float64(len(frameBuffer)) < float64(cap(frameBuffer))*FrameBufferPercentMin {
+	if float64(len(frameBuffer)) < float64(cap(frameBuffer))*frameBufferPercentMin {
 		iter := 0
-		for float64(len(frameBuffer)) < float64(cap(frameBuffer))*FrameBufferPercentMaxWait {
-			fmt.Println(len(frameBuffer), cap(frameBuffer), waitTime, iter)
+		for float64(len(frameBuffer)) < float64(cap(frameBuffer))*frameBufferPercentMaxWait {
 			time.Sleep(waitTime)
 			iter++
 		}
 
 		// Tweaking sleep time
-		if iter < TimeSyncIterMin {
+		if iter < timeSyncIterMin {
 			return waitTime - 10*time.Millisecond
-		} else if iter > TimeSyncIterMax {
+		} else if iter > timeSyncIterMax {
 			return waitTime + 10*time.Millisecond
 		}
 	}
