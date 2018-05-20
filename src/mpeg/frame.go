@@ -142,6 +142,23 @@ func (p *Parser) Iter() ([]byte, FrameType) {
 	}
 }
 
+func FrameHeaderValid(data []byte) bool {
+	if len(data) < 4 {
+		return false
+	}
+	if data[0] == 0xFF && data[1]&0xE0 == 0xE0 {
+		hdr := FrameHeader(data[:4])
+		if hdr.Emphasis() != EmphasisReserved &&
+			hdr.Layer() != LayerReserved &&
+			hdr.Version() != VersionMPEGReserved &&
+			hdr.SampleRate() != SampleRateInvalid &&
+			hdr.BitRate() != BitRateInvalid {
+			return true
+		}
+	}
+	return false
+}
+
 func dumpdata(data []byte) {
 	hex := ""
 	chrs := ""

@@ -2,13 +2,14 @@ package cast
 
 import (
 	"configreader"
-	"mpeg"
+	"icy"
 	"net/http"
 	"strconv"
 )
 
 const (
 	InitialListenersCount = 256
+	DataBufferSize        = 4096
 )
 
 type (
@@ -68,22 +69,28 @@ retryLoop:
 		logger.Noticef("SOURCE \"%s\": source puller connected", sourcePath)
 		source.active = true
 
-		parser := mpeg.NewParser(resp.Body, int(metaInterval))
+		mfChannel := make(chan icy.MetaFrame, 1)
+		reader := icy.NewReader(resp.Body, int(metaInterval), mfChannel)
+		dataBuf := make([]byte, DataBufferSize)
 		for {
-			frame, frameType := parser.Iter()
-			switch frameType {
-			case mpeg.FrameTypeNone:
-				logger.Errorf("SOURCE \"%s\": no data from source, retrying", sourcePath)
+
+			n, err := reader.Read(dataBuf)
+			if err != nil {
+				logger.Errorf("SOURCE \"%s\": error reading data: %s", sourcePath, err.Error())
+				retriesLeft--
 				continue retryLoop
-			case mpeg.FrameTypeMeta:
-				meta, err := mpeg.ParseMeta(frame)
+			}
+			source.inputChannel <- dataBuf[:n]
+
+			select {
+			case metaFrame := <-mfChannel:
+				meta, err := metaFrame.ParseMeta()
 				if err != nil {
 					logger.Errorf("SOURCE \"%s\": error parsing metadata: %s", sourcePath, err.Error())
 				} else {
 					logger.Noticef("SOURCE \"%s\": got metadata %v", sourcePath, meta)
 				}
 			default:
-				source.inputChannel <- frame
 			}
 		}
 	}
@@ -102,10 +109,10 @@ func sourceHandler(rw http.ResponseWriter, req *http.Request) {
 }
 
 func (s *Source) multiplex() {
-	for frame := range s.inputChannel {
+	for chunk := range s.inputChannel {
 		s.listeners.Iter(func(lr *Listener) {
 			select {
-			case lr.frameBuffer <- frame:
+			case lr.dataBuffer <- chunk:
 			default:
 			}
 		})

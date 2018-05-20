@@ -1,14 +1,16 @@
 package cast
 
 import (
+	"errors"
 	"fmt"
+	"mpeg"
 	"net/http"
 	"sync"
 	"time"
 )
 
 const (
-	frameBufferInitSize       = 128
+	frameBufferInitSize       = 16
 	frameBufferPercentMin     = 0.5
 	frameBufferPercentMaxWait = 0.7
 	timeSyncIterMin           = 3
@@ -21,8 +23,7 @@ type Listener struct {
 	request        *http.Request
 	sourcePath     string
 	joined         time.Time
-	frameBuffer    chan []byte
-	dataBuffer     []byte
+	dataBuffer     chan []byte
 	key            string
 }
 
@@ -70,7 +71,6 @@ func NewListener(rw http.ResponseWriter, req *http.Request, sourcePath string) *
 		sourcePath,
 		time.Now(),
 		make(chan []byte, frameBufferInitSize),
-		make([]byte, 8192),
 		fmt.Sprintf("%s:%s", req.RemoteAddr, sourcePath),
 	}
 }
@@ -102,16 +102,22 @@ func handleListener(rw http.ResponseWriter, req *http.Request) {
 	rw.Header().Set("icy-url", source.config.Stream.URL)
 	rw.WriteHeader(200)
 
-	// Initial buffering
-	logger.Debugf("SOURCE \"%s\": initial buffering stream for listener %s", source.config.Path, lr.key)
-	wTime := timeSync(timeSyncInitialValue, lr.frameBuffer)
-	logger.Debugf("SOURCE \"%s\": initial buffering complete for listener %s", source.config.Path, lr.key)
+	synced := false
+	var chunk []byte
+	var err error
 
 	for {
-		wTime = timeSync(wTime, lr.frameBuffer)
-		frame := <-lr.frameBuffer
+		chunk = <-lr.dataBuffer
+		if !synced {
+			chunk, err = frameSync(chunk)
+			if err != nil {
+				logger.Error("error framesyncing")
+				break
+			}
+			synced = true
+		}
 
-		_, err := rw.Write(frame)
+		_, err := rw.Write(chunk)
 		if err != nil {
 			logger.Noticef("SOURCE \"%s\": listener %s has gone", source.config.Path, lr.key)
 			break
@@ -120,21 +126,11 @@ func handleListener(rw http.ResponseWriter, req *http.Request) {
 	source.listeners.Remove(lr)
 }
 
-func timeSync(waitTime time.Duration, frameBuffer chan []byte) time.Duration {
-	// If buffer gets FrameBufferPercentMin full wait until it gets FrameBufferPercentMaxWait full
-	if float64(len(frameBuffer)) < float64(cap(frameBuffer))*frameBufferPercentMin {
-		iter := 0
-		for float64(len(frameBuffer)) < float64(cap(frameBuffer))*frameBufferPercentMaxWait {
-			time.Sleep(waitTime)
-			iter++
-		}
-
-		// Tweaking sleep time
-		if iter < timeSyncIterMin {
-			return waitTime - 10*time.Millisecond
-		} else if iter > timeSyncIterMax {
-			return waitTime + 10*time.Millisecond
+func frameSync(chunk []byte) ([]byte, error) {
+	for i := 0; i < len(chunk)-4; i++ {
+		if mpeg.FrameHeaderValid(chunk[i:]) {
+			return chunk[i:], nil
 		}
 	}
-	return waitTime
+	return chunk, errors.New("no valid frame found")
 }
