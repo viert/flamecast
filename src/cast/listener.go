@@ -13,9 +13,6 @@ const (
 	frameBufferInitSize       = 16
 	frameBufferPercentMin     = 0.5
 	frameBufferPercentMaxWait = 0.7
-	timeSyncIterMin           = 3
-	timeSyncIterMax           = 5
-	timeSyncInitialValue      = 100 * time.Millisecond
 )
 
 type Listener struct {
