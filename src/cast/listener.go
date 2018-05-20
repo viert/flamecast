@@ -2,7 +2,6 @@ package cast
 
 import (
 	"fmt"
-	"github.com/tcolgate/mp3"
 	"net/http"
 	"sync"
 	"time"
@@ -22,7 +21,7 @@ type Listener struct {
 	request        *http.Request
 	sourcePath     string
 	joined         time.Time
-	frameBuffer    chan *mp3.Frame
+	frameBuffer    chan []byte
 	dataBuffer     []byte
 	key            string
 }
@@ -70,7 +69,7 @@ func NewListener(rw http.ResponseWriter, req *http.Request, sourcePath string) *
 		req,
 		sourcePath,
 		time.Now(),
-		make(chan *mp3.Frame, frameBufferInitSize),
+		make(chan []byte, frameBufferInitSize),
 		make([]byte, 8192),
 		fmt.Sprintf("%s:%s", req.RemoteAddr, sourcePath),
 	}
@@ -112,12 +111,7 @@ func handleListener(rw http.ResponseWriter, req *http.Request) {
 		wTime = timeSync(wTime, lr.frameBuffer)
 		frame := <-lr.frameBuffer
 
-		n, err := frame.Reader().Read(lr.dataBuffer)
-		if err != nil {
-			logger.Errorf("SOURCE \"%s\": error reading data from frame: %s", source.config.Path, err)
-			break
-		}
-		_, err = rw.Write(lr.dataBuffer[:n])
+		_, err := rw.Write(frame)
 		if err != nil {
 			logger.Noticef("SOURCE \"%s\": listener %s has gone", source.config.Path, lr.key)
 			break
@@ -126,7 +120,7 @@ func handleListener(rw http.ResponseWriter, req *http.Request) {
 	source.listeners.Remove(lr)
 }
 
-func timeSync(waitTime time.Duration, frameBuffer chan *mp3.Frame) time.Duration {
+func timeSync(waitTime time.Duration, frameBuffer chan []byte) time.Duration {
 	// If buffer gets FrameBufferPercentMin full wait until it gets FrameBufferPercentMaxWait full
 	if float64(len(frameBuffer)) < float64(cap(frameBuffer))*frameBufferPercentMin {
 		iter := 0

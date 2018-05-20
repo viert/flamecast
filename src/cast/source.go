@@ -2,25 +2,33 @@ package cast
 
 import (
 	"configreader"
-	"github.com/tcolgate/mp3"
+	"mpeg"
 	"net/http"
+	"strconv"
 )
 
 const (
 	InitialListenersCount = 256
 )
 
-type Source struct {
-	config       *configreader.SourceConfig
-	inputChannel chan *mp3.Frame
-	listeners    *ListenerSlice
-	active       bool
-}
+type (
+	Source struct {
+		config       *configreader.SourceConfig
+		inputChannel chan []byte
+		listeners    *ListenerSlice
+		active       bool
+	}
+
+	SourceStat struct {
+		BytesRead   uint64
+		FramesFound uint64
+	}
+)
 
 func NewSource(config *configreader.SourceConfig) *Source {
 	return &Source{
 		config,
-		make(chan *mp3.Frame, 5120),
+		make(chan []byte, 1024),
 		NewListenerSlice(512),
 		false,
 	}
@@ -31,32 +39,50 @@ func pullSource(source *Source) {
 
 	sourceUrl := source.config.SourcePullUrl.String()
 	sourcePath := source.config.Path
-	source.active = true
+
+	cli := new(http.Client)
 
 retryLoop:
 	for retriesLeft > 0 {
-		resp, err := http.Get(sourceUrl)
+		req, err := http.NewRequest("GET", sourceUrl, nil)
 		if err != nil {
-			logger.Errorf("Error pulling source %s: %s", sourcePath, err)
+			logger.Errorf("SOURCE \"%s\": error creating request: %s", sourcePath, err.Error())
 			retriesLeft--
 			continue retryLoop
 		}
 
-		logger.Noticef("Source puller for source %s connected", sourcePath)
-		var frame *mp3.Frame
-		decoder := mp3.NewDecoder(resp.Body)
+		req.Header.Set("Icy-MetaData", "1")
+		resp, err := cli.Do(req)
+		if err != nil {
+			logger.Errorf("SOURCE \"%s\": error pulling source: %s", sourcePath, err.Error())
+			retriesLeft--
+			continue retryLoop
+		}
+
+		var metaInterval int64 = 0
+		miString := resp.Header.Get("icy-metaint")
+		if miString != "" {
+			metaInterval, _ = strconv.ParseInt(miString, 10, 64)
+		}
+
+		logger.Noticef("SOURCE \"%s\": source puller connected", sourcePath)
+		source.active = true
+
+		parser := mpeg.NewParser(resp.Body, int(metaInterval))
 		for {
-			frame = new(mp3.Frame)
-			var skipped int
-			err = decoder.Decode(frame, &skipped)
-			if err != nil {
-				logger.Errorf("Error decoding data: %s", err)
+			frame, _, frameType := parser.Iter()
+			switch frameType {
+			case mpeg.FrameTypeNone:
+				logger.Errorf("SOURCE \"%s\": no data from source, retrying", sourcePath)
 				continue retryLoop
+			case mpeg.FrameTypeMeta:
+				logger.Noticef("SOURCE \"%s\": got metadata of len %d", sourcePath, len(frame))
+			default:
+				source.inputChannel <- frame
 			}
-			source.inputChannel <- frame
 		}
 	}
-
+	source.active = false
 }
 
 func sourceHandler(rw http.ResponseWriter, req *http.Request) {
