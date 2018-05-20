@@ -17,6 +17,9 @@ func ParseMeta(data []byte) (map[string]string, error) {
 	i := len(data) - 1
 	for data[i] == 0 {
 		i--
+		if i < 0 {
+			break
+		}
 	}
 	metaString := string(data[:i+1])
 	result := make(map[string]string)
