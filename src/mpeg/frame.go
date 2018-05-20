@@ -122,6 +122,9 @@ func (p *Parser) Iter() ([]byte, FrameType) {
 
 					p.buffer = p.buffer[frameSize+metaFrameLength+1:]
 				} else {
+					if len(p.buffer) < frameSize {
+						fmt.Println(len(p.buffer), frameSize)
+					}
 					res = p.buffer[:frameSize]
 					p.metaPointer += frameSize
 					p.buffer = p.buffer[frameSize:]
