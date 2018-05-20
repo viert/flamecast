@@ -70,13 +70,18 @@ retryLoop:
 
 		parser := mpeg.NewParser(resp.Body, int(metaInterval))
 		for {
-			frame, _, frameType := parser.Iter()
+			frame, frameType := parser.Iter()
 			switch frameType {
 			case mpeg.FrameTypeNone:
 				logger.Errorf("SOURCE \"%s\": no data from source, retrying", sourcePath)
 				continue retryLoop
 			case mpeg.FrameTypeMeta:
-				logger.Noticef("SOURCE \"%s\": got metadata of len %d", sourcePath, len(frame))
+				meta, err := mpeg.ParseMeta(frame)
+				if err != nil {
+					logger.Errorf("SOURCE \"%s\": error parsing metadata: %s", sourcePath, err.Error())
+				} else {
+					logger.Noticef("SOURCE \"%s\": got metadata %v", sourcePath, meta)
+				}
 			default:
 				source.inputChannel <- frame
 			}

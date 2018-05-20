@@ -3,7 +3,6 @@ package mpeg
 import (
 	"fmt"
 	"io"
-	"os"
 )
 
 type (
@@ -13,7 +12,7 @@ type (
 		buffer       []byte
 		metaInterval int
 		metaPointer  int
-		dump         *os.File
+		metaFrame    []byte
 	}
 	FrameType int
 )
@@ -34,8 +33,7 @@ const (
 
 // NewParser returns a new stream parser
 func NewParser(reader io.Reader, metaInterval int) *Parser {
-	f, _ := os.Create("frame.dump")
-	return &Parser{reader, 0, make([]byte, 0, FrameBufSize), metaInterval, 0, f}
+	return &Parser{reader, 0, make([]byte, 0, FrameBufSize), metaInterval, 0, make([]byte, 0)}
 }
 
 func (p *Parser) fillUp(l int) error {
@@ -54,30 +52,34 @@ func (p *Parser) fillUp(l int) error {
 
 	p.buffer = p.buffer[:l]
 	_, err := io.ReadFull(p.source, p.buffer[currentLength:])
-	p.dump.Write(p.buffer[currentLength:])
 	return err
 }
 
-func (p *Parser) Iter() ([]byte, uint64, FrameType) {
+func (p *Parser) Iter() ([]byte, FrameType) {
+	if len(p.metaFrame) > 0 {
+		frame := p.metaFrame
+		p.metaFrame = make([]byte, 0)
+		return frame, FrameTypeMeta
+	}
 	for {
 		if len(p.buffer) < 4 {
 			err := p.fillUp(FrameBufSize)
 			if err != nil {
-				return make([]byte, 0), p.bytesRead, FrameTypeNone
+				return make([]byte, 0), FrameTypeNone
 			}
 		}
 
 		if p.metaInterval != 0 && p.metaPointer != 0 && p.metaPointer == p.metaInterval {
 			metaLength := int(p.buffer[0]) * 16
 			p.fillUp(metaLength + 1)
+
 			frameData := p.buffer[1 : metaLength+1]
-			pos := p.bytesRead + 1
 
 			p.bytesRead += uint64(metaLength + 1)
 			p.metaPointer = 0
 			p.buffer = p.buffer[metaLength+1:]
 
-			return frameData, pos, FrameTypeMeta
+			return frameData, FrameTypeMeta
 		}
 
 		if p.buffer[0] != 0xFF || p.buffer[1]&0xE0 != 0xE0 {
@@ -96,7 +98,6 @@ func (p *Parser) Iter() ([]byte, uint64, FrameType) {
 				frameSize := hdr.FrameSize()
 				p.fillUp(frameSize)
 
-				pos := p.bytesRead
 				var res []byte
 				// Checking if the frame is broken apart by a sudden metaframe
 				if p.metaInterval != 0 && p.metaPointer+frameSize > p.metaInterval {
@@ -116,9 +117,7 @@ func (p *Parser) Iter() ([]byte, uint64, FrameType) {
 					copy(res[frameSplitPos:], p.buffer[remainingFrameStart:remainingFrameStart+remainingFrameLength])
 
 					if metaFrameLength > 0 {
-						fmt.Printf("Cut by meta frame length %d at %d\n", metaFrameLength, p.bytesRead+uint64(frameSplitPos))
-						metaFrame := p.buffer[frameSplitPos+1 : frameSplitPos+1+metaFrameLength]
-						dumpdata(metaFrame)
+						p.metaFrame = p.buffer[frameSplitPos+1 : frameSplitPos+1+metaFrameLength]
 					}
 
 					p.buffer = p.buffer[frameSize+metaFrameLength+1:]
@@ -130,7 +129,7 @@ func (p *Parser) Iter() ([]byte, uint64, FrameType) {
 
 				p.bytesRead += uint64(frameSize)
 
-				return res, pos, FrameTypeMP3
+				return res, FrameTypeMP3
 			} else {
 				p.bytesRead++
 				p.metaPointer++
