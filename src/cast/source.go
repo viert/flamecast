@@ -2,6 +2,7 @@ package cast
 
 import (
 	"configreader"
+	"github.com/viert/endless"
 	"icy"
 	"net/http"
 	"strconv"
@@ -10,16 +11,17 @@ import (
 const (
 	InitialListenersCount = 256
 	DataBufferSize        = 4096
+	EndlessSize           = 512 * 1024
 )
 
 type (
 	Source struct {
-		config       *configreader.SourceConfig
-		inputChannel chan []byte
-		metaChannel  chan icy.MetaData
-		currentMeta  icy.MetaData
-		listeners    *ListenerSlice
-		active       bool
+		config      *configreader.SourceConfig
+		Buffer      *endless.Endless
+		metaChannel chan icy.MetaData
+		currentMeta icy.MetaData
+		listeners   *ListenerSlice
+		active      bool
 	}
 
 	SourceStat struct {
@@ -31,7 +33,7 @@ type (
 func NewSource(config *configreader.SourceConfig) *Source {
 	return &Source{
 		config,
-		make(chan []byte, 1024),
+		endless.NewEndless(EndlessSize),
 		make(chan icy.MetaData, 1),
 		make(icy.MetaData),
 		NewListenerSlice(512),
@@ -84,8 +86,7 @@ retryLoop:
 				retriesLeft--
 				continue retryLoop
 			}
-			source.inputChannel <- dataBuf[:n]
-
+			source.Buffer.Write(dataBuf[:n])
 			select {
 			case metaFrame := <-mfChannel:
 				meta, err := metaFrame.ParseMeta()
@@ -93,7 +94,6 @@ retryLoop:
 					logger.Errorf("SOURCE \"%s\": error parsing metadata: %s", sourcePath, err.Error())
 				} else {
 					source.metaChannel <- meta
-					source.currentMeta = meta
 					logger.Noticef("SOURCE \"%s\": got metadata %v", sourcePath, meta)
 				}
 			default:
@@ -117,14 +117,8 @@ func sourceHandler(rw http.ResponseWriter, req *http.Request) {
 func (s *Source) multiplex() {
 	for {
 		select {
-		case chunk := <-s.inputChannel:
-			s.listeners.Iter(func(lr *Listener) {
-				select {
-				case lr.dataBuffer <- chunk:
-				default:
-				}
-			})
 		case meta := <-s.metaChannel:
+			s.currentMeta = meta
 			s.listeners.Iter(func(lr *Listener) {
 				select {
 				case lr.metaBuffer <- meta:

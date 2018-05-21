@@ -17,7 +17,6 @@ type (
 		request        *http.Request
 		sourcePath     string
 		joined         time.Time
-		dataBuffer     chan []byte
 		metaBuffer     chan icy.MetaData
 		currentMeta    icy.MetaFrame
 		key            string
@@ -30,8 +29,8 @@ type (
 )
 
 const (
-	dataBufferChannelSize = 8
-	defaultMetaInterval   = 16000
+	listenerBufferSize  = 4096
+	defaultMetaInterval = 16000
 )
 
 func NewListenerSlice(allocateSize int) *ListenerSlice {
@@ -72,7 +71,6 @@ func NewListener(rw http.ResponseWriter, req *http.Request, sourcePath string) *
 		req,
 		sourcePath,
 		time.Now(),
-		make(chan []byte, dataBufferChannelSize),
 		make(chan icy.MetaData, 1),
 		make([]byte, 1),
 		fmt.Sprintf("%s:%s", req.RemoteAddr, sourcePath),
@@ -118,58 +116,70 @@ func handleListener(rw http.ResponseWriter, req *http.Request) {
 	rw.WriteHeader(200)
 
 	synced := false
-	var chunk []byte
+	srcReader := source.Buffer.NewReader(source.Buffer.MidPoint())
+	buf := make([]byte, listenerBufferSize)
+	lr.currentMeta = source.currentMeta.Render()
 	var meta icy.MetaData
 	var err error
+	var n int
+	var chunk []byte
 
-listenerLoop:
 	for {
-		select {
-		case chunk = <-lr.dataBuffer:
 
-			if !synced {
-				lr.currentMeta = source.currentMeta.Render()
-				chunk, err = frameSync(chunk)
-				if err != nil {
-					logger.Error("error framesyncing")
-					break listenerLoop
-				}
-				synced = true
-			}
+		n, err = srcReader.Read(buf)
 
-			if metaInt > 0 {
-				if metaPtr+len(chunk) > metaInt {
-					nch := make([]byte, len(chunk)+len(lr.currentMeta))
+		if err != nil {
+			logger.Errorf("error reading source buffer: %s", err.Error())
+			break
+		}
 
-					insertPos := metaInt - metaPtr
-					metaFrameLen := len(lr.currentMeta)
+		if n == 0 {
+			time.Sleep(30 * time.Millisecond)
+			continue
+		}
 
-					copy(nch[:insertPos], chunk[:insertPos])
-					copy(nch[insertPos:insertPos+metaFrameLen], lr.currentMeta)
-					copy(nch[insertPos+metaFrameLen:], chunk[insertPos:])
-
-					if metaFrameLen != 1 {
-						lr.currentMeta = make(icy.MetaFrame, 1)
-					}
-
-					metaPtr = len(chunk) - insertPos
-					chunk = nch
-
-				} else {
-					metaPtr += len(chunk)
-				}
-			}
-
-			n, err := rw.Write(chunk)
+		if !synced {
+			chunk, err = frameSync(buf[:n])
 			if err != nil {
-				logger.Noticef("SOURCE \"%s\": listener %s has gone", source.config.Path, lr.key)
-				break listenerLoop
+				logger.Errorf("error framesyncing")
+				break
 			}
-			fmt.Printf("%d byte written to http stream\n", n)
+			synced = true
+		} else {
+			chunk = buf[:n]
+		}
 
+		if metaInt > 0 {
+			if metaPtr+len(chunk) > metaInt {
+				nch := make([]byte, len(chunk)+len(lr.currentMeta))
+				insertPos := metaInt - metaPtr
+				metaFrameLen := len(lr.currentMeta)
+
+				copy(nch[:insertPos], chunk[:insertPos])
+				copy(nch[insertPos:insertPos+metaFrameLen], lr.currentMeta)
+				copy(nch[insertPos+metaFrameLen:], chunk[insertPos:])
+
+				if metaFrameLen != 1 {
+					lr.currentMeta = make(icy.MetaFrame, 1)
+				}
+
+				metaPtr = len(chunk) - insertPos
+				chunk = nch
+			} else {
+				metaPtr += len(chunk)
+			}
+		}
+
+		n, err = rw.Write(chunk)
+		if err != nil {
+			logger.Noticef("SOURCE \"%s\": listener %s has gone", source.config.Path, lr.key)
+			break
+		}
+
+		select {
 		case meta = <-lr.metaBuffer:
-			fmt.Println("Listener got a meta")
 			lr.currentMeta = meta.Render()
+		default:
 		}
 	}
 	source.listeners.Remove(lr)

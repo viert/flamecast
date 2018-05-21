@@ -57,7 +57,6 @@ func (p *IcyReader) Read(buf []byte) (int, error) {
 				return n, errors.New("error reading metaframe")
 			}
 			frame = frame[:frameLength+1]
-			fmt.Println(frame.Inspect())
 			select {
 			case p.frameChannel <- frame:
 			default:
