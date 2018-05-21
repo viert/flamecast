@@ -63,9 +63,12 @@ func (p *IcyReader) Read(buf []byte) (int, error) {
 			default:
 			}
 		}
-		m, err = p.source.Read(buf[bytesToRead:])
+		m, err = io.ReadFull(p.source, buf[bytesToRead:])
+		if err != nil {
+			return n, err
+		}
 		p.metaPointer = m
-		return n + m, err
+		return m + n, err
 	}
 
 	n, err := p.source.Read(buf)

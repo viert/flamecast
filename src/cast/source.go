@@ -9,7 +9,7 @@ import (
 
 const (
 	InitialListenersCount = 256
-	DataBufferSize        = 8192
+	DataBufferSize        = 4096
 )
 
 type (
