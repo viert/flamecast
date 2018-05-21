@@ -2,11 +2,13 @@ package icy
 
 import (
 	"errors"
+	"fmt"
 	"io"
 )
 
 type (
 	MetaFrame []byte
+	MetaData  map[string]string
 
 	IcyReader struct {
 		source       io.Reader
@@ -30,33 +32,32 @@ func NewReader(src io.Reader, metaInterval int, c chan MetaFrame) *IcyReader {
 }
 
 func (p *IcyReader) Read(buf []byte) (int, error) {
-
 	if p.metaInterval > 0 && p.metaPointer+len(buf) > p.metaInterval {
-		// Cut the metaframe
 		bytesToRead := p.metaInterval - p.metaPointer
-		n, err := p.source.Read(buf[:bytesToRead])
+
+		n, err := io.ReadFull(p.source, buf[:bytesToRead])
 		if err != nil {
 			return n, err
 		}
+
 		frame := make(MetaFrame, 4096)
-		m, err := p.source.Read(frame[:1])
+
+		m, err := io.ReadFull(p.source, frame[:1])
 		if err != nil {
 			return n, err
 		}
-		if m != 1 {
-			return n, errors.New("error reading metaframe header")
-		}
+
 		frameLength := int(frame[0]) * 16
 		if frameLength > 0 {
-			m, err = p.source.Read(frame[:frameLength])
+			m, err = io.ReadFull(p.source, frame[1:frameLength+1])
 			if err != nil {
 				return n, err
 			}
 			if m != frameLength {
 				return n, errors.New("error reading metaframe")
 			}
-			frame = frame[:frameLength]
-
+			frame = frame[:frameLength+1]
+			fmt.Println(frame.Inspect())
 			select {
 			case p.frameChannel <- frame:
 			default:
@@ -72,8 +73,12 @@ func (p *IcyReader) Read(buf []byte) (int, error) {
 	return n, err
 }
 
+func (mf MetaFrame) Inspect() string {
+	return fmt.Sprintf("<MetaFrame fullLen=%d expDataLen=%d(%d) realDataLen=%d>%s</MetaFrame>", len(mf), mf[0], mf[0]*16, len(mf[1:]), string(mf[1:]))
+}
+
 // ParseMeta returns meta as a map[string]string
-func (mf MetaFrame) ParseMeta() (map[string]string, error) {
+func (mf MetaFrame) ParseMeta() (MetaData, error) {
 	i := len(mf) - 1
 	for mf[i] == 0 {
 		i--
@@ -82,7 +87,7 @@ func (mf MetaFrame) ParseMeta() (map[string]string, error) {
 		}
 	}
 	metaString := string(mf[:i+1])
-	result := make(map[string]string)
+	result := make(MetaData)
 	i = 0
 	k := ""
 	v := ""
@@ -90,7 +95,7 @@ func (mf MetaFrame) ParseMeta() (map[string]string, error) {
 parseLoop:
 	for {
 		if i >= len(metaString) && state != StateReadKey {
-			return result, errors.New("unexpected end of metadata")
+			return make(MetaData), errors.New("unexpected end of metadata")
 		}
 		switch state {
 		case StateReadKey:
@@ -100,7 +105,7 @@ parseLoop:
 			if metaString[i] == '=' {
 				i++
 				if i >= len(metaString) {
-					return result, errors.New("unexpected end of metadata")
+					return make(MetaData), errors.New("unexpected end of metadata")
 				}
 				if metaString[i] == '\'' {
 					state = StateReadQuotedValue
@@ -134,7 +139,7 @@ parseLoop:
 			i++
 		case StateWaitSemicolon:
 			if metaString[i] != ';' {
-				return result, errors.New("semicolon expected")
+				return make(MetaData), errors.New("semicolon expected")
 			} else {
 				state = StateReadKey
 				i++
@@ -142,4 +147,27 @@ parseLoop:
 		}
 	}
 	return result, nil
+}
+
+func (md *MetaData) Render() MetaFrame {
+	if len(*md) == 0 {
+		return make(MetaFrame, 1)
+	}
+
+	metaString := ""
+	for key, value := range *md {
+		metaString += fmt.Sprintf("%s='%s';", key, value)
+	}
+
+	metaLength := len(metaString) / 16
+	if len(metaString)%16 != 0 {
+		metaLength++
+	}
+
+	result := make([]byte, metaLength*16+1)
+	result[0] = byte(metaLength)
+	for i, sym := range metaString {
+		result[i+1] = byte(sym)
+	}
+	return MetaFrame(result)
 }
