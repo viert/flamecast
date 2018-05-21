@@ -3,31 +3,36 @@ package cast
 import (
 	"errors"
 	"fmt"
+	"icy"
 	"mpeg"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 )
 
-const (
-	frameBufferInitSize       = 16
-	frameBufferPercentMin     = 0.5
-	frameBufferPercentMaxWait = 0.7
+type (
+	Listener struct {
+		responseWriter http.ResponseWriter
+		request        *http.Request
+		sourcePath     string
+		joined         time.Time
+		dataBuffer     chan []byte
+		metaBuffer     chan icy.MetaData
+		currentMeta    icy.MetaFrame
+		key            string
+	}
+
+	ListenerSlice struct {
+		sync.Mutex
+		listeners []*Listener
+	}
 )
 
-type Listener struct {
-	responseWriter http.ResponseWriter
-	request        *http.Request
-	sourcePath     string
-	joined         time.Time
-	dataBuffer     chan []byte
-	key            string
-}
-
-type ListenerSlice struct {
-	sync.Mutex
-	listeners []*Listener
-}
+const (
+	dataBufferChannelSize = 8
+	defaultMetaInterval   = 16000
+)
 
 func NewListenerSlice(allocateSize int) *ListenerSlice {
 	return &ListenerSlice{
@@ -67,7 +72,9 @@ func NewListener(rw http.ResponseWriter, req *http.Request, sourcePath string) *
 		req,
 		sourcePath,
 		time.Now(),
-		make(chan []byte, frameBufferInitSize),
+		make(chan []byte, dataBufferChannelSize),
+		make(chan icy.MetaData, 1),
+		make([]byte, 1),
 		fmt.Sprintf("%s:%s", req.RemoteAddr, sourcePath),
 	}
 }
@@ -87,7 +94,7 @@ func handleListener(rw http.ResponseWriter, req *http.Request) {
 
 	rw.Header().Set("Content-Type", "audio/mpeg")
 	rw.Header().Set("icy-br", fmt.Sprintf("%d", source.config.Stream.Bitrate))
-	rw.Header().Set("icy-audio-info", fmt.Sprintf("bitrate=%d", source.config.Stream.Bitrate))
+	rw.Header().Set("ice-audio-info", fmt.Sprintf("bitrate=%d", source.config.Stream.Bitrate))
 	rw.Header().Set("icy-description", source.config.Stream.Description)
 	rw.Header().Set("icy-name", source.config.Stream.Name)
 	rw.Header().Set("icy-genre", source.config.Stream.Genre)
@@ -97,27 +104,72 @@ func handleListener(rw http.ResponseWriter, req *http.Request) {
 		rw.Header().Set("icy-pub", "0")
 	}
 	rw.Header().Set("icy-url", source.config.Stream.URL)
+
+	metaInt := 0
+	metaPtr := 0
+	metaRequested := req.Header.Get("Icy-MetaData")
+	if metaRequested == "1" {
+		metaInt = defaultMetaInterval
+	}
+	if metaInt != 0 {
+		rw.Header().Set("icy-metaint", fmt.Sprintf("%d", metaInt))
+	}
+
 	rw.WriteHeader(200)
 
 	synced := false
 	var chunk []byte
+	var meta icy.MetaData
 	var err error
 
+listenerLoop:
 	for {
-		chunk = <-lr.dataBuffer
-		if !synced {
-			chunk, err = frameSync(chunk)
-			if err != nil {
-				logger.Error("error framesyncing")
-				break
-			}
-			synced = true
-		}
+		select {
+		case chunk = <-lr.dataBuffer:
 
-		_, err := rw.Write(chunk)
-		if err != nil {
-			logger.Noticef("SOURCE \"%s\": listener %s has gone", source.config.Path, lr.key)
-			break
+			if !synced {
+				lr.currentMeta = source.currentMeta.Render()
+				chunk, err = frameSync(chunk)
+				if err != nil {
+					logger.Error("error framesyncing")
+					break listenerLoop
+				}
+				synced = true
+			}
+
+			if metaInt > 0 {
+				if metaPtr+len(chunk) > metaInt {
+					nch := make([]byte, len(chunk)+len(lr.currentMeta))
+
+					insertPos := metaInt - metaPtr
+					metaFrameLen := len(lr.currentMeta)
+
+					copy(nch[:insertPos], chunk[:insertPos])
+					copy(nch[insertPos:insertPos+metaFrameLen], lr.currentMeta)
+					copy(nch[insertPos+metaFrameLen:], chunk[insertPos:])
+
+					if metaFrameLen != 1 {
+						lr.currentMeta = make(icy.MetaFrame, 1)
+					}
+
+					metaPtr = len(chunk) - insertPos
+					chunk = nch
+
+				} else {
+					metaPtr += len(chunk)
+				}
+			}
+
+			n, err := rw.Write(chunk)
+			if err != nil {
+				logger.Noticef("SOURCE \"%s\": listener %s has gone", source.config.Path, lr.key)
+				break listenerLoop
+			}
+			fmt.Printf("%d byte written to http stream\n", n)
+
+		case meta = <-lr.metaBuffer:
+			fmt.Println("Listener got a meta")
+			lr.currentMeta = meta.Render()
 		}
 	}
 	source.listeners.Remove(lr)
@@ -130,4 +182,15 @@ func frameSync(chunk []byte) ([]byte, error) {
 		}
 	}
 	return chunk, errors.New("no valid frame found")
+}
+
+func dumpChunk(chunk []byte, filename string) {
+	f, err := os.Create(filename)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	for _, b := range chunk {
+		f.Write([]byte(fmt.Sprintf("%02X\n", b)))
+	}
 }

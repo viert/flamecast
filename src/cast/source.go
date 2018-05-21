@@ -9,13 +9,15 @@ import (
 
 const (
 	InitialListenersCount = 256
-	DataBufferSize        = 4096
+	DataBufferSize        = 8192
 )
 
 type (
 	Source struct {
 		config       *configreader.SourceConfig
 		inputChannel chan []byte
+		metaChannel  chan icy.MetaData
+		currentMeta  icy.MetaData
 		listeners    *ListenerSlice
 		active       bool
 	}
@@ -30,6 +32,8 @@ func NewSource(config *configreader.SourceConfig) *Source {
 	return &Source{
 		config,
 		make(chan []byte, 1024),
+		make(chan icy.MetaData, 1),
+		make(icy.MetaData),
 		NewListenerSlice(512),
 		false,
 	}
@@ -88,6 +92,8 @@ retryLoop:
 				if err != nil {
 					logger.Errorf("SOURCE \"%s\": error parsing metadata: %s", sourcePath, err.Error())
 				} else {
+					source.metaChannel <- meta
+					source.currentMeta = meta
 					logger.Noticef("SOURCE \"%s\": got metadata %v", sourcePath, meta)
 				}
 			default:
@@ -109,12 +115,22 @@ func sourceHandler(rw http.ResponseWriter, req *http.Request) {
 }
 
 func (s *Source) multiplex() {
-	for chunk := range s.inputChannel {
-		s.listeners.Iter(func(lr *Listener) {
-			select {
-			case lr.dataBuffer <- chunk:
-			default:
-			}
-		})
+	for {
+		select {
+		case chunk := <-s.inputChannel:
+			s.listeners.Iter(func(lr *Listener) {
+				select {
+				case lr.dataBuffer <- chunk:
+				default:
+				}
+			})
+		case meta := <-s.metaChannel:
+			s.listeners.Iter(func(lr *Listener) {
+				select {
+				case lr.metaBuffer <- meta:
+				default:
+				}
+			})
+		}
 	}
 }
