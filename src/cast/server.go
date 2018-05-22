@@ -10,7 +10,7 @@ import (
 
 const (
 	LoggerModule = "flamecast.server"
-	LogFormat    = "%{color}%{level:.4s} %{id:03x}%{color:reset} %{shortfunc} %{message}"
+	LogFormat    = "%{color}%{level:6s}%{color:reset} %{message} [%{shortfunc}]"
 )
 
 var (

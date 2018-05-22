@@ -22,6 +22,7 @@ type SourceDesc struct {
 	Genre       string         `json:"genre"`
 	Description string         `json:"description"`
 	Bitrate     int            `json:"bitrate"`
+	AudioInfo   string         `json:"audio_info"`
 	Type        string         `json:"type"`
 	PullURL     string         `json:"pull_url"`
 	CurrentMeta icy.MetaData   `json:"current_meta"`
@@ -44,12 +45,13 @@ func sourcesListHandler(rw http.ResponseWriter, req *http.Request) {
 			Genre:       source.config.Stream.Genre,
 			Description: source.config.Stream.Description,
 			Bitrate:     source.config.Stream.Bitrate,
+			AudioInfo:   source.config.Stream.AudioInfo,
 			Listeners:   make([]ListenerDesc, 0, 512),
 			CurrentMeta: source.currentMeta,
 		}
 		if source.config.Type == configreader.SourceTypePull {
 			sd.Type = "pull"
-			sd.PullURL = source.config.SourcePullUrl.String()
+			sd.PullURL = source.config.SourcePullURL.String()
 		} else if source.config.Type == configreader.SourceTypePush {
 			sd.Type = "push"
 		}

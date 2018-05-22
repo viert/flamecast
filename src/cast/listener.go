@@ -20,7 +20,6 @@ type (
 		request          *http.Request
 		sourcePath       string
 		joined           time.Time
-		metaBuffer       chan icy.MetaData
 		currentMetaFrame *icy.MetaFrame
 		key              string
 	}
@@ -78,7 +77,6 @@ func NewListener(rw http.ResponseWriter, req *http.Request, sourcePath string) *
 		req,
 		sourcePath,
 		time.Now(),
-		make(chan icy.MetaData, 1),
 		&ZeroMetaFrame,
 		fmt.Sprintf("%s:%s", req.RemoteAddr, sourcePath),
 	}
@@ -141,7 +139,7 @@ func handleListener(rw http.ResponseWriter, req *http.Request) {
 
 	if source.config.BroadcastAuthType == configreader.BroadcastAuthTypeToken {
 		token := extractToken(req)
-		if token == "" || !checkToken(token, source.config.BroadcastAuthTokenCheckUrl) {
+		if token == "" || !checkToken(token, source.config.BroadcastAuthTokenCheckURL) {
 			http.Error(rw, "Authentication failed", http.StatusUnauthorized)
 			return
 		}
@@ -153,7 +151,7 @@ func handleListener(rw http.ResponseWriter, req *http.Request) {
 
 	rw.Header().Set("Content-Type", "audio/mpeg")
 	rw.Header().Set("icy-br", fmt.Sprintf("%d", source.config.Stream.Bitrate))
-	rw.Header().Set("ice-audio-info", fmt.Sprintf("bitrate=%d", source.config.Stream.Bitrate))
+	rw.Header().Set("ice-audio-info", source.config.Stream.AudioInfo)
 	rw.Header().Set("icy-description", source.config.Stream.Description)
 	rw.Header().Set("icy-name", source.config.Stream.Name)
 	rw.Header().Set("icy-genre", source.config.Stream.Genre)

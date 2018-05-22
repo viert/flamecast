@@ -43,7 +43,7 @@ func NewSource(config *configreader.SourceConfig) *Source {
 func pullSource(source *Source) {
 	retriesLeft := PullRetriesMax
 
-	sourceURL := source.config.SourcePullUrl.String()
+	sourceURL := source.config.SourcePullURL.String()
 	sourcePath := source.config.Path
 
 	cli := new(http.Client)
@@ -64,6 +64,8 @@ retryLoop:
 			retriesLeft--
 			continue retryLoop
 		}
+
+		readIceHeaders(source, resp.Header)
 
 		var metaInterval int64
 		miString := resp.Header.Get("icy-metaint")
@@ -113,6 +115,7 @@ retryLoop:
 }
 
 func pushSource(rw http.ResponseWriter, req *http.Request) {
+
 	sourcePath := req.URL.RequestURI()
 	source, found := sourcesPathMap[sourcePath]
 	if !found {
@@ -132,37 +135,7 @@ func pushSource(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	source.config.Stream.Name = req.Header.Get("flame-name")
-
-	if source.config.Stream.Name == "" {
-		source.config.Stream.Name = req.Header.Get("ice-name")
-	}
-
-	source.config.Stream.URL = req.Header.Get("flame-url")
-	if source.config.Stream.URL == "" {
-		source.config.Stream.URL = req.Header.Get("ice-url")
-	}
-
-	source.config.Stream.Genre = req.Header.Get("flame-genre")
-	if source.config.Stream.Genre == "" {
-		source.config.Stream.Genre = req.Header.Get("ice-genre")
-	}
-	source.config.Stream.Description = req.Header.Get("flame-description")
-	if source.config.Stream.Description == "" {
-		source.config.Stream.Description = req.Header.Get("ice-description")
-	}
-
-	public := req.Header.Get("flame-public")
-	if public == "" {
-		public = req.Header.Get("ice-public")
-	}
-	public = strings.ToLower(public)
-
-	if public == "0" || public == "false" || public == "no" {
-		source.config.Stream.Public = false
-	} else {
-		source.config.Stream.Public = true
-	}
+	readIceHeaders(source, req.Header)
 	logger.Noticef("SOURCE \"%s\": feeder accepted", sourcePath)
 
 	hj, ok := rw.(http.Hijacker)
@@ -224,4 +197,37 @@ func setSourceMetadata(s *Source, md icy.MetaData) {
 func checkSourceAuth(s *Source, req *http.Request) bool {
 	token := req.Header.Get("Authorization")
 	return token == "Basic "+s.config.SourceAuthToken
+}
+
+func readIceHeaders(s *Source, hdr http.Header) {
+	name := hdr.Get("Ice-Name")
+	if name != "" {
+		s.config.Name = name
+		s.config.Stream.Name = name
+	}
+
+	description := hdr.Get("Ice-Description")
+	if description != "" {
+		s.config.Stream.Description = description
+	}
+
+	genre := hdr.Get("Ice-Genre")
+	if genre != "" {
+		s.config.Stream.Genre = genre
+	}
+
+	url := hdr.Get("Ice-Url")
+	if url != "" {
+		s.config.Stream.URL = url
+	}
+
+	public := hdr.Get("Ice-Public")
+	if public != "" {
+		public = strings.ToLower(public)
+		if public == "0" || public == "false" || public == "no" {
+			s.config.Stream.Public = false
+		} else {
+			s.config.Stream.Public = true
+		}
+	}
 }

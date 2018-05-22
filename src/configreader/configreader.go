@@ -10,93 +10,105 @@ import (
 	"strings"
 )
 
+// Default configuration values
 const (
-	DEFAULT_BIND                = ":8000"
-	DEFAULT_SOURCE_USER         = "source"
-	DEFAULT_SOURCE_TYPE         = "PUSH"
-	DEFAULT_BROADCAST_AUTH_TYPE = "NONE"
-	DEFAULT_LOG_FILE            = "/var/log/flamecast.log"
-	DEFAULT_LOG_LEVEL           = "ERROR"
+	DefaultBind              = ":8000"
+	DefaultBitrate           = 96
+	DefaultSourceUser        = "source"
+	DefaultSourceType        = "PUSH"
+	DefaultBroadcastAuthType = "NONE"
+	DefaultLogfile           = "/var/log/flamecast.log"
+	DefaultLogLevel          = "ERROR"
 )
 
+// SourceType valid values
 const (
 	SourceTypePush = iota
 	SourceTypePull
-	BroadcastAuthTypeNone
+)
+
+// BroadcastAuthType valid values
+const (
+	BroadcastAuthTypeNone = iota
 	BroadcastAuthTypeToken
 )
 
+// Defaults and mappings
 var (
-	DEFAULT_SOURCE_BITRATES = [...]byte{96, 112}
-	SOURCE_TYPES            = map[string]int{"PUSH": SourceTypePush, "PULL": SourceTypePull}
-	AUTH_TYPES              = map[string]int{"NONE": BroadcastAuthTypeNone, "TOKEN": BroadcastAuthTypeToken}
+	DefaultSourceBitrates = [...]byte{96, 112}
+	SourceTypes           = map[string]int{"PUSH": SourceTypePush, "PULL": SourceTypePull}
+	AuthTypes             = map[string]int{"NONE": BroadcastAuthTypeNone, "TOKEN": BroadcastAuthTypeToken}
 )
 
-type StreamDescription struct {
-	Name        string
-	Public      bool
-	URL         string
-	Genre       string
-	Description string
-	Bitrate     int
-}
+type (
+	StreamDescription struct {
+		Name        string
+		Public      bool
+		URL         string
+		Genre       string
+		Description string
+		Bitrate     int
+		AudioInfo   string
+	}
 
-type SourceConfig struct {
-	Name                       string
-	Path                       string
-	FallbackPath               string
-	Type                       int
-	SourceAuthToken            string
-	SourcePullUrl              *url.URL
-	Stream                     StreamDescription
-	BroadcastAuthType          int
-	BroadcastAuthTokenCheckUrl *url.URL
-	BroadcastNotifyEnterUrl    *url.URL
-	BroadcastNotifyLeaveUrl    *url.URL
-}
+	SourceConfig struct {
+		Name                       string
+		Path                       string
+		FallbackPath               string
+		Type                       int
+		SourceAuthToken            string
+		SourcePullURL              *url.URL
+		Stream                     StreamDescription
+		BroadcastAuthType          int
+		BroadcastAuthTokenCheckURL *url.URL
+		BroadcastNotifyEnterURL    *url.URL
+		BroadcastNotifyLeaveURL    *url.URL
+	}
 
-type Config struct {
-	Bind           string
-	LogFile        string
-	LogLevel       logging.Level
-	SourcesNameMap map[string]*SourceConfig
-	SourcesPathMap map[string]*SourceConfig
-}
+	Config struct {
+		Bind           string
+		LogFile        string
+		LogLevel       logging.Level
+		SourcesNameMap map[string]*SourceConfig
+		SourcesPathMap map[string]*SourceConfig
+	}
+)
 
 func sourceTypeFromString(srcType string) int {
-	return SOURCE_TYPES[srcType]
+	return SourceTypes[srcType]
 }
 
 func validSourceTypes() string {
-	sourceTypes := make([]string, 0, len(SOURCE_TYPES))
-	for k := range SOURCE_TYPES {
-		sourceTypes = append(sourceTypes, fmt.Sprintf("\"%s\"", strings.ToLower(k)))
+	st := make([]string, 0, len(SourceTypes))
+	for k := range SourceTypes {
+		st = append(st, fmt.Sprintf("\"%s\"", strings.ToLower(k)))
 	}
-	return strings.Join(sourceTypes, ", ")
+	return strings.Join(st, ", ")
 }
 
 func isValidSourceType(srcType string) bool {
-	_, exists := SOURCE_TYPES[srcType]
+	_, exists := SourceTypes[srcType]
 	return exists
 }
 
 func broadcastAuthTypeFromString(authType string) int {
-	return AUTH_TYPES[authType]
+	return AuthTypes[authType]
 }
 
 func validAuthTypes() string {
-	authTypes := make([]string, 0, len(AUTH_TYPES))
-	for k := range AUTH_TYPES {
-		authTypes = append(authTypes, fmt.Sprintf("\"%s\"", strings.ToLower(k)))
+	at := make([]string, 0, len(AuthTypes))
+	for k := range AuthTypes {
+		at = append(at, fmt.Sprintf("\"%s\"", strings.ToLower(k)))
 	}
-	return strings.Join(authTypes, ", ")
+	return strings.Join(at, ", ")
 }
 
 func isValidAuthType(authType string) bool {
-	_, exists := AUTH_TYPES[authType]
+	_, exists := AuthTypes[authType]
 	return exists
 }
 
+// Load loads and parses config with a given filename
 func Load(filename string) (*Config, error) {
 	props, err := properties.Load(filename)
 
@@ -112,17 +124,17 @@ func Load(filename string) (*Config, error) {
 	// Server-wide options configuration
 	cfg.Bind, err = props.GetString("main.bind")
 	if err != nil {
-		cfg.Bind = DEFAULT_BIND
+		cfg.Bind = DefaultBind
 	}
 
 	cfg.LogFile, err = props.GetString("main.log.file")
 	if err != nil {
-		cfg.LogFile = DEFAULT_LOG_FILE
+		cfg.LogFile = DefaultLogfile
 	}
 
 	logLevel, err := props.GetString("main.log.level")
 	if err != nil {
-		logLevel = DEFAULT_LOG_LEVEL
+		logLevel = DefaultLogLevel
 	}
 	cfg.LogLevel, err = logging.LogLevel(strings.ToUpper(logLevel))
 	if err != nil {
@@ -168,27 +180,24 @@ func Load(filename string) (*Config, error) {
 		}
 		scfg.Type = sourceTypeFromString(sourceType)
 
-		switch scfg.Type {
-		case SourceTypePush:
-			// SourceAuthToken
-			var user, password string
-			user, err = props.GetString(prefix + "source.auth.user")
-			if err != nil {
-				user = DEFAULT_SOURCE_USER
-			}
-			password, err = props.GetString(prefix + "source.auth.password")
-			if err != nil {
-				return nil, errors.New("No source.auth.password for PUSH-type source " + sourceName)
-			}
-			scfg.SourceAuthToken = base64.StdEncoding.EncodeToString([]byte(user + ":" + password))
-		case SourceTypePull:
-			// SourcePullUrl
-			srcUrl, err := props.GetString(prefix + "source.url")
+		// SourceAuthToken
+		var user, password string
+		user, err = props.GetString(prefix + "source.auth.user")
+		if err != nil {
+			user = DefaultSourceUser
+		}
+		password, err = props.GetString(prefix + "source.auth.password")
+		if err != nil {
+			password = "?"
+		}
+		scfg.SourceAuthToken = base64.StdEncoding.EncodeToString([]byte(user + ":" + password))
+
+		if scfg.Type == SourceTypePull {
+			srcURL, err := props.GetString(prefix + "source.url")
 			if err != nil {
 				return nil, errors.New("No source.url for PULL-type source " + sourceName)
 			}
-
-			scfg.SourcePullUrl, err = url.Parse(srcUrl)
+			scfg.SourcePullURL, err = url.Parse(srcURL)
 			if err != nil {
 				return nil, errors.New("Invalid source.url for source " + sourceName + ": " + err.Error())
 			}
@@ -207,11 +216,11 @@ func Load(filename string) (*Config, error) {
 
 		switch scfg.BroadcastAuthType {
 		case BroadcastAuthTypeToken:
-			authUrl, err := props.GetString(prefix + "broadcast.auth.token_check_url")
+			authURL, err := props.GetString(prefix + "broadcast.auth.token_check_url")
 			if err != nil {
 				return nil, errors.New("No broadcast.auth.token_check_url (while broadcast.auth.type is TOKEN) for source " + sourceName)
 			}
-			scfg.BroadcastAuthTokenCheckUrl, err = url.Parse(authUrl)
+			scfg.BroadcastAuthTokenCheckURL, err = url.Parse(authURL)
 			if err != nil {
 				return nil, errors.New("Invalid broadcast.auth.token_check_url for source " + sourceName + ": " + err.Error())
 			}
@@ -219,7 +228,7 @@ func Load(filename string) (*Config, error) {
 
 		notifyEnter, err := props.GetString(prefix + "broadcast.notify.enter")
 		if err == nil {
-			scfg.BroadcastNotifyEnterUrl, err = url.Parse(notifyEnter)
+			scfg.BroadcastNotifyEnterURL, err = url.Parse(notifyEnter)
 			if err != nil {
 				return nil, errors.New("Invalid URL in broadcast.notify.enter for source " + sourceName + ": " + err.Error())
 
@@ -228,7 +237,7 @@ func Load(filename string) (*Config, error) {
 
 		notifyLeave, err := props.GetString(prefix + "broadcast.notify.leave")
 		if err == nil {
-			scfg.BroadcastNotifyLeaveUrl, err = url.Parse(notifyLeave)
+			scfg.BroadcastNotifyLeaveURL, err = url.Parse(notifyLeave)
 			if err != nil {
 				return nil, errors.New("Invalid URL in broadcast.notify.leave for source " + sourceName + ": " + err.Error())
 
@@ -237,7 +246,11 @@ func Load(filename string) (*Config, error) {
 
 		scfg.Stream.Name, _ = props.GetString(prefix + "source.name")
 		scfg.Stream.Description, _ = props.GetString(prefix + "source.description")
-		scfg.Stream.Bitrate, _ = props.GetInt(prefix + "source.bitrate")
+		scfg.Stream.Bitrate, err = props.GetInt(prefix + "source.bitrate")
+		if err != nil {
+			scfg.Stream.Bitrate = DefaultBitrate
+		}
+		scfg.Stream.AudioInfo = fmt.Sprintf("br=%d", scfg.Stream.Bitrate)
 		scfg.Stream.Public, _ = props.GetBool(prefix + "source.public")
 		scfg.Stream.Genre, _ = props.GetString(prefix + "source.genre")
 		scfg.Stream.URL, _ = props.GetString(prefix + "source.site")
