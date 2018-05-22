@@ -164,11 +164,11 @@ func pushSource(rw http.ResponseWriter, req *http.Request) {
 	} else {
 		source.config.Stream.Public = true
 	}
-	source.active = true
-	logger.Noticef("SOURCE \"%s\": feeder accepted, stream is active", sourcePath)
+	logger.Noticef("SOURCE \"%s\": feeder accepted", sourcePath)
 
 	hj, ok := rw.(http.Hijacker)
 	if !ok {
+		logger.Errorf("SOURCE \"%s\": hijacking failed", sourcePath)
 		http.Error(rw, "hijacking failed", http.StatusInternalServerError)
 		return
 	}
@@ -182,6 +182,7 @@ func pushSource(rw http.ResponseWriter, req *http.Request) {
 	bufrw.WriteString("HTTP/1.0 200 OK\r\n\r\n")
 	bufrw.Flush()
 
+	iterations := 0
 	dataBuf := make([]byte, DataBufferSize)
 
 	for {
@@ -192,6 +193,13 @@ func pushSource(rw http.ResponseWriter, req *http.Request) {
 			break
 		}
 		source.Buffer.Write(dataBuf[:n])
+		if !source.active {
+			iterations++
+			if iterations == BlocksWrittenUntilActive {
+				logger.Noticef("SOURCE \"%s\": source buffer filled, source is now active", sourcePath)
+				source.active = true
+			}
+		}
 	}
 }
 
