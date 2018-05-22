@@ -50,7 +50,6 @@ func Start() error {
 	http.HandleFunc("/", sourceHandler)
 
 	for path, source := range sourcesPathMap {
-		go source.multiplex()
 		if source.config.Type == configreader.SourceTypePull {
 			logger.Noticef("Starting pulling thread for source %s", path)
 			go pullSource(source)

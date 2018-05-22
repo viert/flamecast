@@ -3,6 +3,7 @@ package cast
 import (
 	"configreader"
 	"encoding/json"
+	"icy"
 	"net/http"
 	"time"
 )
@@ -22,7 +23,8 @@ type SourceDesc struct {
 	Description string         `json:"description"`
 	Bitrate     int            `json:"bitrate"`
 	Type        string         `json:"type"`
-	PullUrl     string         `json:"pull_url"`
+	PullURL     string         `json:"pull_url"`
+	CurrentMeta icy.MetaData   `json:"current_meta"`
 	Listeners   []ListenerDesc `json:"listeners"`
 }
 
@@ -43,10 +45,11 @@ func sourcesListHandler(rw http.ResponseWriter, req *http.Request) {
 			Description: source.config.Stream.Description,
 			Bitrate:     source.config.Stream.Bitrate,
 			Listeners:   make([]ListenerDesc, 0, 512),
+			CurrentMeta: source.currentMeta,
 		}
 		if source.config.Type == configreader.SourceTypePull {
 			sd.Type = "pull"
-			sd.PullUrl = source.config.SourcePullUrl.String()
+			sd.PullURL = source.config.SourcePullUrl.String()
 		} else if source.config.Type == configreader.SourceTypePush {
 			sd.Type = "push"
 		}

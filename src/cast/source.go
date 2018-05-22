@@ -18,12 +18,12 @@ const (
 type (
 	// Source is the main source holder with configuration, buffers, metadata, listeners etc.
 	Source struct {
-		config      *configreader.SourceConfig
-		Buffer      *endless.Endless
-		metaChannel chan icy.MetaData
-		currentMeta icy.MetaData
-		listeners   *ListenerSlice
-		active      bool
+		config           *configreader.SourceConfig
+		Buffer           *endless.Endless
+		currentMeta      icy.MetaData
+		currentMetaFrame *icy.MetaFrame
+		listeners        *ListenerSlice
+		active           bool
 	}
 )
 
@@ -31,8 +31,8 @@ func NewSource(config *configreader.SourceConfig) *Source {
 	return &Source{
 		config,
 		endless.NewEndless(EndlessSize),
-		make(chan icy.MetaData, 1),
 		make(icy.MetaData),
+		&icy.MetaFrame{0},
 		NewListenerSlice(512),
 		false,
 	}
@@ -91,7 +91,8 @@ retryLoop:
 				if err != nil {
 					logger.Errorf("SOURCE \"%s\": error parsing metadata: %s", sourcePath, err.Error())
 				} else {
-					source.metaChannel <- meta
+					source.currentMeta = meta
+					source.currentMetaFrame = &metaFrame
 					logger.Noticef("SOURCE \"%s\": got metadata %v", sourcePath, meta)
 				}
 			default:
@@ -117,20 +118,5 @@ func sourceHandler(rw http.ResponseWriter, req *http.Request) {
 
 	case "GET":
 		handleListener(rw, req)
-	}
-}
-
-func (s *Source) multiplex() {
-	for {
-		select {
-		case meta := <-s.metaChannel:
-			s.currentMeta = meta
-			s.listeners.Iter(func(lr *Listener) {
-				select {
-				case lr.metaBuffer <- meta:
-				default:
-				}
-			})
-		}
 	}
 }

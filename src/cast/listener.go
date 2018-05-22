@@ -13,13 +13,13 @@ import (
 
 type (
 	Listener struct {
-		responseWriter http.ResponseWriter
-		request        *http.Request
-		sourcePath     string
-		joined         time.Time
-		metaBuffer     chan icy.MetaData
-		currentMeta    icy.MetaFrame
-		key            string
+		responseWriter   http.ResponseWriter
+		request          *http.Request
+		sourcePath       string
+		joined           time.Time
+		metaBuffer       chan icy.MetaData
+		currentMetaFrame *icy.MetaFrame
+		key              string
 	}
 
 	ListenerSlice struct {
@@ -31,6 +31,10 @@ type (
 const (
 	listenerBufferSize  = 4096
 	defaultMetaInterval = 16000
+)
+
+var (
+	ZeroMetaFrame = icy.MetaFrame{0}
 )
 
 func NewListenerSlice(allocateSize int) *ListenerSlice {
@@ -72,7 +76,7 @@ func NewListener(rw http.ResponseWriter, req *http.Request, sourcePath string) *
 		sourcePath,
 		time.Now(),
 		make(chan icy.MetaData, 1),
-		make([]byte, 1),
+		&ZeroMetaFrame,
 		fmt.Sprintf("%s:%s", req.RemoteAddr, sourcePath),
 	}
 }
@@ -118,8 +122,7 @@ func handleListener(rw http.ResponseWriter, req *http.Request) {
 	synced := false
 	srcReader := source.Buffer.NewReader(source.Buffer.MidPoint())
 	buf := make([]byte, listenerBufferSize)
-	lr.currentMeta = source.currentMeta.Render()
-	var meta icy.MetaData
+	var metaFrame icy.MetaFrame
 	var err error
 	var n int
 	var chunk []byte
@@ -151,17 +154,21 @@ func handleListener(rw http.ResponseWriter, req *http.Request) {
 
 		if metaInt > 0 {
 			if metaPtr+len(chunk) > metaInt {
-				nch := make([]byte, len(chunk)+len(lr.currentMeta))
+
+				// If the
+				if lr.currentMetaFrame != source.currentMetaFrame {
+					lr.currentMetaFrame = source.currentMetaFrame
+					metaFrame = *source.currentMetaFrame
+				} else {
+					metaFrame = ZeroMetaFrame
+				}
+				nch := make([]byte, len(chunk)+len(metaFrame))
 				insertPos := metaInt - metaPtr
-				metaFrameLen := len(lr.currentMeta)
+				metaFrameLen := len(metaFrame)
 
 				copy(nch[:insertPos], chunk[:insertPos])
-				copy(nch[insertPos:insertPos+metaFrameLen], lr.currentMeta)
+				copy(nch[insertPos:insertPos+metaFrameLen], metaFrame)
 				copy(nch[insertPos+metaFrameLen:], chunk[insertPos:])
-
-				if metaFrameLen != 1 {
-					lr.currentMeta = make(icy.MetaFrame, 1)
-				}
 
 				metaPtr = len(chunk) - insertPos
 				chunk = nch
@@ -176,11 +183,6 @@ func handleListener(rw http.ResponseWriter, req *http.Request) {
 			break
 		}
 
-		select {
-		case meta = <-lr.metaBuffer:
-			lr.currentMeta = meta.Render()
-		default:
-		}
 	}
 	source.listeners.Remove(lr)
 }
