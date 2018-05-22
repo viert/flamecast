@@ -7,7 +7,7 @@ FlameCast is a proof of concept analog of the famous Icecast server written in G
 ```
 go get github.com/op/go-logging
 go get github.com/viert/properties
-go get github.com/tcolgate/mp3
+go get github.com/viert/endless
 go build src/flamecast.go
 ```
 
