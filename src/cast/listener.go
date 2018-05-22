@@ -1,12 +1,15 @@
 package cast
 
 import (
+	"configreader"
 	"errors"
 	"fmt"
 	"icy"
 	"mpeg"
 	"net/http"
+	"net/url"
 	"os"
+	"strings"
 	"sync"
 	"time"
 )
@@ -81,6 +84,52 @@ func NewListener(rw http.ResponseWriter, req *http.Request, sourcePath string) *
 	}
 }
 
+func extractToken(req *http.Request) string {
+	token := req.URL.Query().Get("token")
+	if token != "" {
+		return token
+	}
+	token = req.Header.Get("X-Flamecast-Token")
+	if token != "" {
+		return token
+	}
+	auth := req.Header.Get("Authorization")
+	if auth != "" {
+		if auth[:6] == "Token " {
+			token = strings.TrimSpace(auth[6:])
+		}
+	}
+	return token
+}
+
+func checkToken(token string, checkUrl *url.URL) bool {
+	client := new(http.Client)
+	body := fmt.Sprintf("{\"token\": \"%s\"}", token)
+	req, err := http.NewRequest("POST", checkUrl.String(), strings.NewReader(body))
+	if err != nil {
+		logger.Errorf("error creating request for token check: %s", err.Error())
+		return false
+	}
+	req.Header.Add("Content-Type", "application/json")
+	resp, err := client.Do(req)
+	if err != nil {
+		logger.Errorf("error getting response for token check: %a", err.Error())
+		return false
+	}
+	if resp.StatusCode != http.StatusOK {
+		return false
+	}
+
+	checkResponse := resp.Header.Get("flamecast-auth-user")
+	if checkResponse == "" {
+		checkResponse = resp.Header.Get("icecast-auth-user")
+	}
+	if checkResponse == "1" {
+		return true
+	}
+	return false
+}
+
 func handleListener(rw http.ResponseWriter, req *http.Request) {
 	sourcePath := req.URL.RequestURI()
 
@@ -88,6 +137,14 @@ func handleListener(rw http.ResponseWriter, req *http.Request) {
 	if !found || !source.active {
 		http.Error(rw, "Source not found", http.StatusNotFound)
 		return
+	}
+
+	if source.config.BroadcastAuthType == configreader.BroadcastAuthTypeToken {
+		token := extractToken(req)
+		if token == "" || !checkToken(token, source.config.BroadcastAuthTokenCheckUrl) {
+			http.Error(rw, "Authentication failed", http.StatusUnauthorized)
+			return
+		}
 	}
 
 	lr := NewListener(rw, req, sourcePath)

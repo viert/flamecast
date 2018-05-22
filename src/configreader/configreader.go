@@ -33,12 +33,12 @@ var (
 )
 
 type StreamDescription struct {
-	Name        string `json:"name"`
-	Public      bool   `json:"public"`
-	URL         string `json:"url"`
-	Genre       string `json:"genre"`
-	Description string `json:"description"`
-	Bitrate     int    `json:"bitrate"`
+	Name        string
+	Public      bool
+	URL         string
+	Genre       string
+	Description string
+	Bitrate     int
 }
 
 type SourceConfig struct {

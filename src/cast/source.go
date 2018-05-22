@@ -10,10 +10,11 @@ import (
 )
 
 const (
-	InitialListenersCount    = 256
+	BlocksWrittenUntilActive = 4
 	DataBufferSize           = 4096
 	EndlessSize              = 512 * 1024
-	BlocksWrittenUntilActive = 4
+	InitialListenersCount    = 256
+	PullRetriesMax           = 5
 )
 
 type (
@@ -40,7 +41,7 @@ func NewSource(config *configreader.SourceConfig) *Source {
 }
 
 func pullSource(source *Source) {
-	retriesLeft := PULL_RETRIES_MAX
+	retriesLeft := PullRetriesMax
 
 	sourceURL := source.config.SourcePullUrl.String()
 	sourcePath := source.config.Path

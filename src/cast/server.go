@@ -9,9 +9,8 @@ import (
 )
 
 const (
-	LOGGER_MODULE    = "flamecast.server"
-	PULL_RETRIES_MAX = 30
-	PULL_BUFFER_SIZE = 8192
+	LoggerModule = "flamecast.server"
+	LogFormat    = "%{color}%{level:.4s} %{id:03x}%{color:reset} %{shortfunc} %{message}"
 )
 
 var (
@@ -28,9 +27,9 @@ func Configure(cfg *configreader.Config) error {
 	if err != nil {
 		return err
 	}
-	logger = logging.MustGetLogger(LOGGER_MODULE)
-	logging.SetLevel(config.LogLevel, LOGGER_MODULE)
-	logging.SetFormatter(logging.MustStringFormatter("%{level} %{message}"))
+	logger = logging.MustGetLogger(LoggerModule)
+	logging.SetLevel(config.LogLevel, LoggerModule)
+	logging.SetFormatter(logging.MustStringFormatter(LogFormat))
 	fileBackend := logging.NewLogBackend(lf, "", stdlog.LstdFlags)
 	stderrBackend := logging.NewLogBackend(os.Stderr, "", stdlog.LstdFlags)
 	stderrBackend.Color = true
