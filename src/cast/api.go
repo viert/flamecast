@@ -80,6 +80,17 @@ func adminMetadataHandler(rw http.ResponseWriter, req *http.Request) {
 		http.Error(rw, "mount param is missing", http.StatusBadRequest)
 		return
 	}
+	source, found := sourcesPathMap[mount]
+	if !found {
+		http.Error(rw, "mount not found", http.StatusNotFound)
+		return
+	}
+
+	if !checkSourceAuth(source, req) {
+		http.Error(rw, "authorization failed", http.StatusUnauthorized)
+		return
+	}
+
 	mode := values.Get("mode")
 	if mode == "" {
 		http.Error(rw, "mode param is missing", http.StatusBadRequest)
@@ -96,11 +107,6 @@ func adminMetadataHandler(rw http.ResponseWriter, req *http.Request) {
 	}
 
 	meta := icy.MetaData{"StreamTitle": song}
-	source, found := sourcesPathMap[mount]
-	if !found {
-		http.Error(rw, "mount not found", http.StatusNotFound)
-		return
-	}
 	setSourceMetadata(source, meta)
 	rw.Write([]byte("metadata changed"))
 }

@@ -126,8 +126,7 @@ func pushSource(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	token := req.Header.Get("Authorization")
-	if token != "Basic "+source.config.SourceAuthToken {
+	if !checkSourceAuth(source, req) {
 		logger.Errorf("SOURCE \"%s\": Feeder authorization failed", sourcePath)
 		http.Error(rw, "Source authorization failed", http.StatusUnauthorized)
 		return
@@ -220,4 +219,9 @@ func setSourceMetadata(s *Source, md icy.MetaData) {
 	s.currentMeta = md
 	s.currentMetaFrame = &frame
 	logger.Noticef("SOURCE \"%s\": got metadata %v", s.config.Path, md)
+}
+
+func checkSourceAuth(s *Source, req *http.Request) bool {
+	token := req.Header.Get("Authorization")
+	return token == "Basic "+s.config.SourceAuthToken
 }
