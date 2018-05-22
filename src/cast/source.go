@@ -12,7 +12,7 @@ import (
 const (
 	BlocksWrittenUntilActive = 4
 	DataBufferSize           = 4096
-	EndlessSize              = 512 * 1024
+	EndlessSize              = 16 * 4096
 	InitialListenersCount    = 256
 	PullRetriesMax           = 5
 )

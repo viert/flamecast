@@ -9,8 +9,9 @@ import (
 )
 
 type ListenerDesc struct {
-	Key    string    `json:"key"`
-	Joined time.Time `json:"joined_at"`
+	Key        string    `json:"key"`
+	Joined     time.Time `json:"joined_at"`
+	RemoteAddr string    `json:"remote_addr`
 }
 
 type SourceDesc struct {
@@ -58,8 +59,9 @@ func sourcesListHandler(rw http.ResponseWriter, req *http.Request) {
 
 		source.listeners.Iter(func(lr *Listener) {
 			ld := ListenerDesc{
-				Key:    lr.key,
-				Joined: lr.joined,
+				Key:        lr.key,
+				Joined:     lr.joined,
+				RemoteAddr: lr.request.RemoteAddr,
 			}
 			sd.Listeners = append(sd.Listeners, ld)
 		})

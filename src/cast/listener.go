@@ -4,6 +4,7 @@ import (
 	"configreader"
 	"errors"
 	"fmt"
+	"github.com/viert/endless"
 	"icy"
 	"mpeg"
 	"net/http"
@@ -129,13 +130,14 @@ func checkToken(token string, checkUrl *url.URL) bool {
 }
 
 func handleListener(rw http.ResponseWriter, req *http.Request) {
-	sourcePath := req.URL.RequestURI()
 
+	sourcePath := req.URL.RequestURI()
 	source, found := sourcesPathMap[sourcePath]
-	if !found || !source.active {
+	if !found {
 		http.Error(rw, "Source not found", http.StatusNotFound)
 		return
 	}
+	altSource, hasAlt := sourcesPathMap[source.config.FallbackPath]
 
 	if source.config.BroadcastAuthType == configreader.BroadcastAuthTypeToken {
 		token := extractToken(req)
@@ -145,10 +147,37 @@ func handleListener(rw http.ResponseWriter, req *http.Request) {
 		}
 	}
 
+	// Setting up listener
 	lr := NewListener(rw, req, sourcePath)
 	source.listeners.Add(lr)
 	logger.Noticef("SOURCE \"%s\": listener %s has joined", source.config.Path, lr.key)
 
+	// Setting up source reader
+	var isAlt bool
+	var srcReader *endless.EndlessReader
+	var synced = false
+	var metaFrame icy.MetaFrame
+	var err error
+	var n int
+	var chunk []byte
+	var buf = make([]byte, listenerBufferSize)
+
+	if !source.active {
+		if !hasAlt || !altSource.active {
+			http.Error(rw, "source not found", http.StatusNotFound)
+			logger.Errorf("SOURCE \"%s\": listener %s dropped as source is not active and there's no alternative",
+				sourcePath, lr.key)
+			return
+		}
+		logger.Noticef("SOURCE \"%s\": listener %s started with fallback stream", sourcePath, lr.key)
+		srcReader = altSource.Buffer.NewReader(altSource.Buffer.MidPoint())
+		isAlt = true
+	} else {
+		srcReader = source.Buffer.NewReader(source.Buffer.MidPoint())
+		isAlt = false
+	}
+
+	// Setting up listener headers
 	rw.Header().Set("Content-Type", "audio/mpeg")
 	rw.Header().Set("icy-br", fmt.Sprintf("%d", source.config.Stream.Bitrate))
 	rw.Header().Set("ice-audio-info", source.config.Stream.AudioInfo)
@@ -171,23 +200,35 @@ func handleListener(rw http.ResponseWriter, req *http.Request) {
 	if metaInt != 0 {
 		rw.Header().Set("icy-metaint", fmt.Sprintf("%d", metaInt))
 	}
-
 	rw.WriteHeader(200)
 
-	synced := false
-	srcReader := source.Buffer.NewReader(source.Buffer.MidPoint())
-	buf := make([]byte, listenerBufferSize)
-	var metaFrame icy.MetaFrame
-	var err error
-	var n int
-	var chunk []byte
-
 	for {
+
+		if isAlt {
+			if source.active {
+				logger.Noticef("SOURCE \"%s\": source got active, moving listener %s back from fallback",
+					sourcePath, lr.key)
+				srcReader = source.Buffer.NewReader(source.Buffer.MidPoint())
+				synced = false
+				isAlt = false
+			} else if !altSource.active {
+				logger.Errorf("SOURCE \"%s\": no more active sources for listener %s, giving up", sourcePath, lr.key)
+				break
+			}
+		} else {
+			if !source.active {
+				logger.Noticef("SOURCE \"%s\": source has stopped, moving listener %s to fallback",
+					sourcePath, lr.key)
+				srcReader = altSource.Buffer.NewReader(altSource.Buffer.MidPoint())
+				synced = false
+				isAlt = true
+			}
+		}
 
 		n, err = srcReader.Read(buf)
 
 		if err != nil {
-			logger.Errorf("error reading source buffer: %s", err.Error())
+			logger.Errorf("SOURCE \"%s\": error reading source buffer: %s", err.Error())
 			break
 		}
 
