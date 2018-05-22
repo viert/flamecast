@@ -81,6 +81,9 @@ func (mf MetaFrame) Inspect() string {
 
 // ParseMeta returns meta as a map[string]string
 func (mf MetaFrame) ParseMeta() (MetaData, error) {
+	if len(mf) < 1 {
+		return make(MetaData), errors.New("metaframe of zero length is not allowed")
+	}
 	i := len(mf) - 1
 	for mf[i] == 0 {
 		i--
@@ -88,7 +91,7 @@ func (mf MetaFrame) ParseMeta() (MetaData, error) {
 			break
 		}
 	}
-	metaString := string(mf[:i+1])
+	metaString := string(mf[1 : i+1])
 	result := make(MetaData)
 	i = 0
 	k := ""
@@ -131,10 +134,17 @@ parseLoop:
 			i++
 		case StateReadQuotedValue:
 			if metaString[i] == '\'' {
-				result[k] = v
-				k = ""
-				v = ""
-				state = StateWaitSemicolon
+				if i+1 >= len(metaString) {
+					return make(MetaData), errors.New("unexpected end of metadata")
+				}
+				if metaString[i+1] == ';' {
+					result[k] = v
+					k = ""
+					v = ""
+					state = StateWaitSemicolon
+				} else {
+					v += string(metaString[i])
+				}
 			} else {
 				v += string(metaString[i])
 			}
