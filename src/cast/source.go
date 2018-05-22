@@ -214,3 +214,10 @@ func sourceHandler(rw http.ResponseWriter, req *http.Request) {
 		handleListener(rw, req)
 	}
 }
+
+func setSourceMetadata(s *Source, md icy.MetaData) {
+	frame := md.Render()
+	s.currentMeta = md
+	s.currentMetaFrame = &frame
+	logger.Noticef("SOURCE \"%s\": got metadata %v", s.config.Path, md)
+}

@@ -72,3 +72,35 @@ func sourcesListHandler(rw http.ResponseWriter, req *http.Request) {
 	rw.Header().Set("Content-Type", "application/json")
 	rw.Write(response)
 }
+
+func adminMetadataHandler(rw http.ResponseWriter, req *http.Request) {
+	values := req.URL.Query()
+	mount := values.Get("mount")
+	if mount == "" {
+		http.Error(rw, "mount param is missing", http.StatusBadRequest)
+		return
+	}
+	mode := values.Get("mode")
+	if mode == "" {
+		http.Error(rw, "mode param is missing", http.StatusBadRequest)
+		return
+	}
+	if mode != "updinfo" {
+		http.Error(rw, "mode param is invalid", http.StatusBadRequest)
+		return
+	}
+	song := values.Get("song")
+	if song == "" {
+		http.Error(rw, "song param is missing", http.StatusBadRequest)
+		return
+	}
+
+	meta := icy.MetaData{"StreamTitle": song}
+	source, found := sourcesPathMap[mount]
+	if !found {
+		http.Error(rw, "mount not found", http.StatusNotFound)
+		return
+	}
+	setSourceMetadata(source, meta)
+	rw.Write([]byte("metadata changed"))
+}

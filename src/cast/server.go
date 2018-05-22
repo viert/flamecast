@@ -45,7 +45,13 @@ func Configure(cfg *configreader.Config) error {
 }
 
 func Start() error {
+	// Flamecast API
 	http.HandleFunc("/api/v1/sources", sourcesListHandler)
+
+	// Icecast compatibility API
+	http.HandleFunc("/admin/metadata", adminMetadataHandler)
+
+	// Main handler for feeding and listening to sources
 	http.HandleFunc("/", sourceHandler)
 
 	for path, source := range sourcesPathMap {
