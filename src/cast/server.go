@@ -59,7 +59,7 @@ func Start() error {
 	logger.Notice("Server is starting")
 	err := http.ListenAndServe(config.Bind, nil)
 	if err != nil {
-		logger.Error("%s", err)
+		logger.Errorf("error starting server: %s", err.Error())
 	}
 	return err
 }

@@ -6,6 +6,7 @@ import (
 	"icy"
 	"net/http"
 	"strconv"
+	"strings"
 )
 
 const (
@@ -110,11 +111,95 @@ retryLoop:
 	source.active = false
 }
 
+func pushSource(rw http.ResponseWriter, req *http.Request) {
+	sourcePath := req.URL.RequestURI()
+	source, found := sourcesPathMap[sourcePath]
+	if !found {
+		http.Error(rw, "Source not found", http.StatusNotFound)
+		return
+	}
+
+	if source.active {
+		logger.Errorf("SOURCE \"%s\": tried to feed already active source", sourcePath)
+		http.Error(rw, "Source is already streaming", http.StatusConflict)
+		return
+	}
+
+	token := req.Header.Get("Authorization")
+	if token != "Basic "+source.config.SourceAuthToken {
+		logger.Errorf("SOURCE \"%s\": Feeder authorization failed", sourcePath)
+		http.Error(rw, "Source authorization failed", http.StatusUnauthorized)
+		return
+	}
+
+	source.config.Stream.Name = req.Header.Get("flame-name")
+
+	if source.config.Stream.Name == "" {
+		source.config.Stream.Name = req.Header.Get("ice-name")
+	}
+
+	source.config.Stream.URL = req.Header.Get("flame-url")
+	if source.config.Stream.URL == "" {
+		source.config.Stream.URL = req.Header.Get("ice-url")
+	}
+
+	source.config.Stream.Genre = req.Header.Get("flame-genre")
+	if source.config.Stream.Genre == "" {
+		source.config.Stream.Genre = req.Header.Get("ice-genre")
+	}
+	source.config.Stream.Description = req.Header.Get("flame-description")
+	if source.config.Stream.Description == "" {
+		source.config.Stream.Description = req.Header.Get("ice-description")
+	}
+
+	public := req.Header.Get("flame-public")
+	if public == "" {
+		public = req.Header.Get("ice-public")
+	}
+	public = strings.ToLower(public)
+
+	if public == "0" || public == "false" || public == "no" {
+		source.config.Stream.Public = false
+	} else {
+		source.config.Stream.Public = true
+	}
+	source.active = true
+	logger.Noticef("SOURCE \"%s\": feeder accepted, stream is active", sourcePath)
+
+	hj, ok := rw.(http.Hijacker)
+	if !ok {
+		http.Error(rw, "hijacking failed", http.StatusInternalServerError)
+		return
+	}
+	conn, bufrw, err := hj.Hijack()
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer conn.Close()
+
+	bufrw.WriteString("HTTP/1.0 200 OK\r\n\r\n")
+	bufrw.Flush()
+
+	dataBuf := make([]byte, DataBufferSize)
+
+	for {
+		n, err := bufrw.Read(dataBuf)
+		if err != nil {
+			logger.Noticef("SOURCE \"%s\": feeder has disconnected", sourcePath)
+			source.active = false
+			break
+		}
+		source.Buffer.Write(dataBuf[:n])
+	}
+}
+
 func sourceHandler(rw http.ResponseWriter, req *http.Request) {
 	switch req.Method {
+	// case "PUT":
+	// 	fallthrough
 	case "SOURCE":
-		logger.Error("SOURCE method is not implemented")
-		http.Error(rw, "SOURCE method is not implemented", http.StatusMethodNotAllowed)
+		pushSource(rw, req)
 
 	case "GET":
 		handleListener(rw, req)
