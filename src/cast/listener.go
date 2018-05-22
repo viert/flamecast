@@ -81,7 +81,7 @@ func handleListener(rw http.ResponseWriter, req *http.Request) {
 	sourcePath := req.URL.RequestURI()
 
 	source, found := sourcesPathMap[sourcePath]
-	if !found {
+	if !found || !source.active {
 		http.Error(rw, "Source not found", http.StatusNotFound)
 		return
 	}

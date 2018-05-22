@@ -9,12 +9,14 @@ import (
 )
 
 const (
-	InitialListenersCount = 256
-	DataBufferSize        = 4096
-	EndlessSize           = 512 * 1024
+	InitialListenersCount    = 256
+	DataBufferSize           = 4096
+	EndlessSize              = 512 * 1024
+	BlocksWrittenUntilActive = 4
 )
 
 type (
+	// Source is the main source holder with configuration, buffers, metadata, listeners etc.
 	Source struct {
 		config      *configreader.SourceConfig
 		Buffer      *endless.Endless
@@ -22,11 +24,6 @@ type (
 		currentMeta icy.MetaData
 		listeners   *ListenerSlice
 		active      bool
-	}
-
-	SourceStat struct {
-		BytesRead   uint64
-		FramesFound uint64
 	}
 )
 
@@ -44,14 +41,14 @@ func NewSource(config *configreader.SourceConfig) *Source {
 func pullSource(source *Source) {
 	retriesLeft := PULL_RETRIES_MAX
 
-	sourceUrl := source.config.SourcePullUrl.String()
+	sourceURL := source.config.SourcePullUrl.String()
 	sourcePath := source.config.Path
 
 	cli := new(http.Client)
 
 retryLoop:
 	for retriesLeft > 0 {
-		req, err := http.NewRequest("GET", sourceUrl, nil)
+		req, err := http.NewRequest("GET", sourceURL, nil)
 		if err != nil {
 			logger.Errorf("SOURCE \"%s\": error creating request: %s", sourcePath, err.Error())
 			retriesLeft--
@@ -66,20 +63,21 @@ retryLoop:
 			continue retryLoop
 		}
 
-		var metaInterval int64 = 0
+		var metaInterval int64
 		miString := resp.Header.Get("icy-metaint")
 		if miString != "" {
 			metaInterval, _ = strconv.ParseInt(miString, 10, 64)
 		}
 
 		logger.Noticef("SOURCE \"%s\": source puller connected", sourcePath)
-		source.active = true
 
 		mfChannel := make(chan icy.MetaFrame, 1)
 		reader := icy.NewReader(resp.Body, int(metaInterval), mfChannel)
 		dataBuf := make([]byte, DataBufferSize)
-		for {
 
+		iterations := 0
+
+		for {
 			n, err := reader.Read(dataBuf)
 			if err != nil {
 				logger.Errorf("SOURCE \"%s\": error reading data: %s", sourcePath, err.Error())
@@ -97,6 +95,14 @@ retryLoop:
 					logger.Noticef("SOURCE \"%s\": got metadata %v", sourcePath, meta)
 				}
 			default:
+			}
+
+			if !source.active {
+				iterations++
+				if iterations == BlocksWrittenUntilActive {
+					logger.Noticef("SOURCE \"%s\": source buffer filled, source is now active", sourcePath)
+					source.active = true
+				}
 			}
 		}
 	}
