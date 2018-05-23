@@ -155,6 +155,7 @@ func handleListener(rw http.ResponseWriter, req *http.Request) {
 	// Setting up source reader
 	var isAlt bool
 	var srcReader *endless.EndlessReader
+	var currentSource *Source
 	var synced = false
 	var metaFrame icy.MetaFrame
 	var err error
@@ -251,13 +252,19 @@ func handleListener(rw http.ResponseWriter, req *http.Request) {
 		if metaInt > 0 {
 			if metaPtr+len(chunk) > metaInt {
 
-				// If the
-				if lr.currentMetaFrame != source.currentMetaFrame {
-					lr.currentMetaFrame = source.currentMetaFrame
-					metaFrame = *source.currentMetaFrame
+				if isAlt {
+					currentSource = altSource
+				} else {
+					currentSource = source
+				}
+
+				if lr.currentMetaFrame != currentSource.currentMetaFrame {
+					lr.currentMetaFrame = currentSource.currentMetaFrame
+					metaFrame = *currentSource.currentMetaFrame
 				} else {
 					metaFrame = ZeroMetaFrame
 				}
+
 				nch := make([]byte, len(chunk)+len(metaFrame))
 				insertPos := metaInt - metaPtr
 				metaFrameLen := len(metaFrame)
