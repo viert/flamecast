@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const (
@@ -26,6 +27,9 @@ type (
 		currentMetaFrame *icy.MetaFrame
 		listeners        *ListenerSlice
 		active           bool
+
+		Started     time.Time
+		ContentType string
 	}
 )
 
@@ -37,6 +41,8 @@ func NewSource(config *configreader.SourceConfig) *Source {
 		&icy.MetaFrame{0},
 		NewListenerSlice(512),
 		false,
+		time.Now(),
+		"audio/mpeg",
 	}
 }
 
@@ -107,6 +113,7 @@ retryLoop:
 				if iterations == BlocksWrittenUntilActive {
 					logger.Noticef("SOURCE \"%s\": source buffer filled, source is now active", sourcePath)
 					source.active = true
+					source.Started = time.Now()
 				}
 			}
 		}
@@ -170,6 +177,7 @@ func pushSource(rw http.ResponseWriter, req *http.Request) {
 			if iterations == BlocksWrittenUntilActive {
 				logger.Noticef("SOURCE \"%s\": source buffer filled, source is now active", sourcePath)
 				source.active = true
+				source.Started = time.Now()
 			}
 		}
 	}

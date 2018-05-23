@@ -26,6 +26,8 @@ type SourceDesc struct {
 	AudioInfo   string         `json:"audio_info"`
 	Type        string         `json:"type"`
 	PullURL     string         `json:"pull_url"`
+	Started     string         `json:"started"`
+	ContentType string         `json:"content_type"`
 	CurrentMeta icy.MetaData   `json:"current_meta"`
 	Listeners   []ListenerDesc `json:"listeners"`
 }
@@ -49,6 +51,12 @@ func sourcesListHandler(rw http.ResponseWriter, req *http.Request) {
 			AudioInfo:   source.config.Stream.AudioInfo,
 			Listeners:   make([]ListenerDesc, 0, 512),
 			CurrentMeta: source.currentMeta,
+			ContentType: source.ContentType,
+		}
+		if sd.Active {
+			sd.Started = source.Started.Format(time.RFC3339)
+		} else {
+			sd.Started = ""
 		}
 		if source.config.Type == configreader.SourceTypePull {
 			sd.Type = "pull"
