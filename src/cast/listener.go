@@ -37,34 +37,37 @@ const (
 )
 
 var (
-	ZeroMetaFrame = icy.MetaFrame{0}
+	zeroMetaFrame = icy.MetaFrame{0}
 )
 
-func NewListenerSlice(allocateSize int) *ListenerSlice {
+func newListenerSlice(allocateSize int) *ListenerSlice {
 	return &ListenerSlice{
 		listeners: make([]*Listener, 0, allocateSize),
 	}
 }
 
-func (ls *ListenerSlice) Add(lr *Listener) {
+func (ls *ListenerSlice) add(lr *Listener) {
 	ls.Lock()
 	defer ls.Unlock()
+	stats.ListenersCount++
 	ls.listeners = append(ls.listeners, lr)
 }
 
-func (ls *ListenerSlice) Remove(lr *Listener) int {
+func (ls *ListenerSlice) remove(lr *Listener) int {
 	ls.Lock()
 	defer ls.Unlock()
+
 	for i, listener := range ls.listeners {
 		if listener == lr {
 			ls.listeners = append(ls.listeners[:i], ls.listeners[i+1:]...)
+			stats.ListenersCount--
 			return i
 		}
 	}
 	return -1
 }
 
-func (ls *ListenerSlice) Iter(fn func(*Listener)) {
+func (ls *ListenerSlice) iter(fn func(*Listener)) {
 	ls.Lock()
 	defer ls.Unlock()
 	for _, listener := range ls.listeners {
@@ -72,13 +75,14 @@ func (ls *ListenerSlice) Iter(fn func(*Listener)) {
 	}
 }
 
+// NewListener creates a new listener
 func NewListener(rw http.ResponseWriter, req *http.Request, sourcePath string) *Listener {
 	return &Listener{
 		rw,
 		req,
 		sourcePath,
 		time.Now(),
-		&ZeroMetaFrame,
+		&zeroMetaFrame,
 		fmt.Sprintf("%s:%s", req.RemoteAddr, sourcePath),
 	}
 }
@@ -101,10 +105,10 @@ func extractToken(req *http.Request) string {
 	return token
 }
 
-func checkToken(token string, checkUrl *url.URL) bool {
+func checkToken(token string, checkURL *url.URL) bool {
 	client := new(http.Client)
 	body := fmt.Sprintf("{\"token\": \"%s\"}", token)
-	req, err := http.NewRequest("POST", checkUrl.String(), strings.NewReader(body))
+	req, err := http.NewRequest("POST", checkURL.String(), strings.NewReader(body))
 	if err != nil {
 		logger.Errorf("error creating request for token check: %s", err.Error())
 		return false
@@ -112,7 +116,7 @@ func checkToken(token string, checkUrl *url.URL) bool {
 	req.Header.Add("Content-Type", "application/json")
 	resp, err := client.Do(req)
 	if err != nil {
-		logger.Errorf("error getting response for token check: %a", err.Error())
+		logger.Errorf("error getting response for token check: %s", err.Error())
 		return false
 	}
 	if resp.StatusCode != http.StatusOK {
@@ -147,9 +151,10 @@ func handleListener(rw http.ResponseWriter, req *http.Request) {
 		}
 	}
 
+	stats.ListenerConnections++
+
 	// Setting up listener
 	lr := NewListener(rw, req, sourcePath)
-	source.listeners.Add(lr)
 	logger.Noticef("SOURCE \"%s\": listener %s has joined", source.config.Path, lr.key)
 
 	// Setting up source reader
@@ -170,10 +175,12 @@ func handleListener(rw http.ResponseWriter, req *http.Request) {
 				sourcePath, lr.key)
 			return
 		}
+		altSource.listeners.add(lr)
 		logger.Noticef("SOURCE \"%s\": listener %s started with fallback stream", sourcePath, lr.key)
 		srcReader = altSource.Buffer.NewReader(altSource.Buffer.MidPoint())
 		isAlt = true
 	} else {
+		source.listeners.add(lr)
 		srcReader = source.Buffer.NewReader(source.Buffer.MidPoint())
 		isAlt = false
 	}
@@ -212,7 +219,10 @@ func handleListener(rw http.ResponseWriter, req *http.Request) {
 				srcReader = source.Buffer.NewReader(source.Buffer.MidPoint())
 				synced = false
 				isAlt = false
+				altSource.listeners.remove(lr)
+				source.listeners.add(lr)
 			} else if !altSource.active {
+				altSource.listeners.remove(lr)
 				logger.Errorf("SOURCE \"%s\": no more active sources for listener %s, giving up", sourcePath, lr.key)
 				break
 			}
@@ -220,6 +230,8 @@ func handleListener(rw http.ResponseWriter, req *http.Request) {
 			if !source.active {
 				logger.Noticef("SOURCE \"%s\": source has stopped, moving listener %s to fallback",
 					sourcePath, lr.key)
+				source.listeners.remove(lr)
+				altSource.listeners.add(lr)
 				srcReader = altSource.Buffer.NewReader(altSource.Buffer.MidPoint())
 				synced = false
 				isAlt = true
@@ -229,7 +241,7 @@ func handleListener(rw http.ResponseWriter, req *http.Request) {
 		n, err = srcReader.Read(buf)
 
 		if err != nil {
-			logger.Errorf("SOURCE \"%s\": error reading source buffer: %s", err.Error())
+			logger.Errorf("SOURCE \"%s\": error reading source buffer: %s", sourcePath, err.Error())
 			break
 		}
 
@@ -262,7 +274,7 @@ func handleListener(rw http.ResponseWriter, req *http.Request) {
 					lr.currentMetaFrame = currentSource.currentMetaFrame
 					metaFrame = *currentSource.currentMetaFrame
 				} else {
-					metaFrame = ZeroMetaFrame
+					metaFrame = zeroMetaFrame
 				}
 
 				nch := make([]byte, len(chunk)+len(metaFrame))
@@ -287,7 +299,11 @@ func handleListener(rw http.ResponseWriter, req *http.Request) {
 		}
 
 	}
-	source.listeners.Remove(lr)
+	// removing listeners from all sources whereever he may currently be
+	source.listeners.remove(lr)
+	if hasAlt {
+		altSource.listeners.remove(lr)
+	}
 }
 
 func frameSync(chunk []byte) ([]byte, error) {

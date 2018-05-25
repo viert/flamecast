@@ -66,6 +66,7 @@ type (
 	}
 
 	Config struct {
+		Admin          string
 		Bind           string
 		LogFile        string
 		LogLevel       logging.Level
@@ -140,6 +141,8 @@ func Load(filename string) (*Config, error) {
 	if err != nil {
 		return nil, errors.New("Invalid log level: " + logLevel)
 	}
+
+	cfg.Admin, _ = props.GetString("main.admin")
 
 	if !props.KeyExists("sources") {
 		return nil, errors.New("No [sources.*] sections found")

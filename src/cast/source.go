@@ -39,7 +39,7 @@ func NewSource(config *configreader.SourceConfig) *Source {
 		endless.NewEndless(EndlessSize),
 		make(icy.MetaData),
 		&icy.MetaFrame{0},
-		NewListenerSlice(512),
+		newListenerSlice(512),
 		false,
 		time.Now(),
 		"audio/mpeg",
@@ -70,6 +70,7 @@ retryLoop:
 			retriesLeft--
 			continue retryLoop
 		}
+		stats.PullerConnections++
 
 		readIceHeaders(source, resp.Header)
 
@@ -144,6 +145,7 @@ func pushSource(rw http.ResponseWriter, req *http.Request) {
 
 	readIceHeaders(source, req.Header)
 	logger.Noticef("SOURCE \"%s\": feeder accepted", sourcePath)
+	stats.FeederConnections++
 
 	hj, ok := rw.(http.Hijacker)
 	if !ok {

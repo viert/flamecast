@@ -9,6 +9,9 @@ import (
 )
 
 const (
+	// FlamecastVersion holds the version of the flamecast server. Used in stats
+	FlamecastVersion = "0.1.0"
+
 	LoggerModule = "flamecast.server"
 	LogFormat    = "%{color}%{level:6s}%{color:reset} %{message} [%{shortfunc}]"
 )
@@ -16,7 +19,8 @@ const (
 var (
 	logger         *logging.Logger
 	config         *configreader.Config
-	sourcesPathMap map[string]*Source
+	sourcesPathMap = make(map[string]*Source)
+	stats          = new(StatsData)
 )
 
 func Configure(cfg *configreader.Config) error {
@@ -35,18 +39,25 @@ func Configure(cfg *configreader.Config) error {
 	stderrBackend.Color = true
 	logging.SetBackend(fileBackend, stderrBackend)
 
-	sourcesPathMap = make(map[string]*Source)
-
 	for path, sourceConfig := range config.SourcesPathMap {
 		sourcesPathMap[path] = NewSource(sourceConfig)
+	}
+
+	stats.SourcesCount = len(sourcesPathMap)
+	stats.ServerID = "Flamecast " + FlamecastVersion
+	stats.Host, err = os.Hostname()
+	stats.Admin = config.Admin
+	if err != nil {
+		stats.Host = "localhost"
 	}
 
 	return nil
 }
 
+// Start starts flamecast server
 func Start() error {
 	// Flamecast API
-	http.HandleFunc("/api/v1/sources", sourcesListHandler)
+	http.HandleFunc("/api/v1/stats", statsHandler)
 
 	// Icecast compatibility API
 	http.HandleFunc("/admin/metadata", adminMetadataHandler)
