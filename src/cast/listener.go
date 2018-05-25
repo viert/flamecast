@@ -9,7 +9,6 @@ import (
 	"mpeg"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -313,15 +312,4 @@ func frameSync(chunk []byte) ([]byte, error) {
 		}
 	}
 	return chunk, errors.New("no valid frame found")
-}
-
-func dumpChunk(chunk []byte, filename string) {
-	f, err := os.Create(filename)
-	if err != nil {
-		return
-	}
-	defer f.Close()
-	for _, b := range chunk {
-		f.Write([]byte(fmt.Sprintf("%02X\n", b)))
-	}
 }
