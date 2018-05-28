@@ -158,7 +158,7 @@ func handleListener(rw http.ResponseWriter, req *http.Request) {
 
 	// Setting up source reader
 	var isAlt bool
-	var srcReader *endless.EndlessReader
+	var srcReader *endless.Reader
 	var currentSource *Source
 	var synced = false
 	var metaFrame icy.MetaFrame
