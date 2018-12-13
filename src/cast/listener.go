@@ -209,6 +209,15 @@ func handleListener(rw http.ResponseWriter, req *http.Request) {
 	}
 	rw.WriteHeader(200)
 
+	writeChunk := func(chunk []byte) bool {
+		_, err := rw.Write(chunk)
+		if err != nil {
+			logger.Noticef("SOURCE \"%s\": listener %s has gone", source.config.Path, lr.key)
+			return false
+		}
+		return true
+	}
+
 	for {
 
 		if isAlt {
@@ -276,25 +285,32 @@ func handleListener(rw http.ResponseWriter, req *http.Request) {
 					metaFrame = zeroMetaFrame
 				}
 
-				nch := make([]byte, len(chunk)+len(metaFrame))
+				// nch := make([]byte, len(chunk)+len(metaFrame))
 				insertPos := metaInt - metaPtr
-				metaFrameLen := len(metaFrame)
 
-				copy(nch[:insertPos], chunk[:insertPos])
-				copy(nch[insertPos:insertPos+metaFrameLen], metaFrame)
-				copy(nch[insertPos+metaFrameLen:], chunk[insertPos:])
+				if !writeChunk(chunk[:insertPos]) {
+					break
+				}
+
+				if !writeChunk(metaFrame) {
+					break
+				}
+
+				if !writeChunk(chunk[insertPos:]) {
+					break
+				}
 
 				metaPtr = len(chunk) - insertPos
-				chunk = nch
 			} else {
 				metaPtr += len(chunk)
+				if !writeChunk(chunk) {
+					break
+				}
 			}
-		}
-
-		n, err = rw.Write(chunk)
-		if err != nil {
-			logger.Noticef("SOURCE \"%s\": listener %s has gone", source.config.Path, lr.key)
-			break
+		} else {
+			if !writeChunk(chunk) {
+				break
+			}
 		}
 
 	}

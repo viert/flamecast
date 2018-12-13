@@ -2,6 +2,9 @@
 *.properties
 pkg
 src/github.com
+src/golang.org
 
+flamecast
+bin
 .vscode
 .idea
