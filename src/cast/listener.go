@@ -104,9 +104,20 @@ func extractToken(req *http.Request) string {
 	return token
 }
 
-func checkToken(token string, checkURL *url.URL) bool {
+func checkToken(token string, lr *Listener, checkURL *url.URL) bool {
+	logger.Debugf("Checking token \"%s\"", token)
 	client := new(http.Client)
-	body := fmt.Sprintf("{\"token\": \"%s\"}", token)
+	body := fmt.Sprintf(`{
+	"token": "%s",
+	"listener": {
+		"remote_addr": "%s",
+		"key": "%s"
+	},
+	"source": {
+		"path": "%s"
+	}
+}`, token, lr.request.RemoteAddr, lr.key, lr.sourcePath)
+
 	req, err := http.NewRequest("POST", checkURL.String(), strings.NewReader(body))
 	if err != nil {
 		logger.Errorf("error creating request for token check: %s", err.Error())
@@ -132,9 +143,34 @@ func checkToken(token string, checkURL *url.URL) bool {
 	return false
 }
 
+func listenerNotify(lr *Listener, notifyUrl *url.URL, notifyType string) {
+	if notifyUrl == nil {
+		return
+	}
+
+	q := notifyUrl.Query()
+	q.Add("source", lr.sourcePath)
+	q.Add("listener", lr.key)
+	req, err := http.NewRequest("GET", notifyUrl.String(), nil)
+	if err != nil {
+		logger.Errorf("Error creating listener notify request: %s", err)
+		return
+	}
+
+	go func() {
+		cli := &http.Client{}
+		resp, err := cli.Do(req)
+		if err != nil {
+			logger.Errorf("Error requesting listener notify url: %s", err)
+		} else {
+			logger.Debugf("Listener %s %s notify, status_code = %d", lr.key, notifyType, resp.StatusCode)
+		}
+	}()
+}
+
 func handleListener(rw http.ResponseWriter, req *http.Request) {
 
-	sourcePath := req.URL.RequestURI()
+	sourcePath := req.URL.Path
 	source, found := sourcesPathMap[sourcePath]
 	if !found {
 		http.Error(rw, "Source not found", http.StatusNotFound)
@@ -142,9 +178,16 @@ func handleListener(rw http.ResponseWriter, req *http.Request) {
 	}
 	altSource, hasAlt := sourcesPathMap[source.config.FallbackPath]
 
+	// Setting up listener
+	lr := NewListener(rw, req, sourcePath)
 	if source.config.BroadcastAuthType == configreader.BroadcastAuthTypeToken {
 		token := extractToken(req)
-		if token == "" || !checkToken(token, source.config.BroadcastAuthTokenCheckURL) {
+		if token == "" || !checkToken(token, lr, source.config.BroadcastAuthTokenCheckURL) {
+			if token == "" {
+				logger.Errorf("Listener %s at source %s has no token, rejecting", lr.key, sourcePath)
+			} else {
+				logger.Errorf("Listener %s at source %s has invalid token \"%s\", rejecting", lr.key, sourcePath, token)
+			}
 			http.Error(rw, "Authentication failed", http.StatusUnauthorized)
 			return
 		}
@@ -152,9 +195,8 @@ func handleListener(rw http.ResponseWriter, req *http.Request) {
 
 	stats.ListenerConnections++
 
-	// Setting up listener
-	lr := NewListener(rw, req, sourcePath)
 	logger.Noticef("SOURCE \"%s\": listener %s has joined", source.config.Path, lr.key)
+	listenerNotify(lr, source.config.BroadcastNotifyEnterURL, "enter")
 
 	// Setting up source reader
 	var isAlt bool
@@ -166,6 +208,7 @@ func handleListener(rw http.ResponseWriter, req *http.Request) {
 	var n int
 	var chunk []byte
 	var buf = make([]byte, listenerBufferSize)
+	logger.Debugf("Allocated listener buffer, size=%d", listenerBufferSize)
 
 	if !source.active {
 		if !hasAlt || !altSource.active {
@@ -319,6 +362,7 @@ func handleListener(rw http.ResponseWriter, req *http.Request) {
 	if hasAlt {
 		altSource.listeners.remove(lr)
 	}
+	listenerNotify(lr, source.config.BroadcastNotifyLeaveURL, "leave")
 }
 
 func frameSync(chunk []byte) ([]byte, error) {
