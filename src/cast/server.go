@@ -55,13 +55,11 @@ func Configure(cfg *configreader.Config) error {
 }
 
 // Start starts flamecast server
-func Start() error {
+func Start() *http.Server {
 	// Flamecast API
 	http.HandleFunc("/api/v1/stats", statsHandler)
-
 	// Icecast compatibility API
 	http.HandleFunc("/admin/metadata", adminMetadataHandler)
-
 	// Main handler for feeding and listening to sources
 	http.HandleFunc("/", sourceHandler)
 
@@ -72,10 +70,13 @@ func Start() error {
 		}
 	}
 
+	srv := &http.Server{Addr: config.Bind}
 	logger.Notice("Server is starting")
-	err := http.ListenAndServe(config.Bind, nil)
-	if err != nil {
-		logger.Errorf("error starting server: %s", err.Error())
-	}
-	return err
+	go func() {
+		if err := http.ListenAndServe(config.Bind, nil); err != nil {
+			logger.Errorf("error starting server: %s", err.Error())
+		}
+	}()
+
+	return srv
 }

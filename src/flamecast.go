@@ -5,6 +5,9 @@ import (
 	"configreader"
 	"flag"
 	"fmt"
+	"os"
+	"os/signal"
+	"syscall"
 )
 
 func usage() {
@@ -31,5 +34,19 @@ func main() {
 		fmt.Println(err)
 		return
 	}
-	cast.Start()
+
+	flameServer := cast.Start()
+
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGINT)
+	defer signal.Reset()
+	for range sigs {
+		break
+	}
+
+	err = flameServer.Shutdown(nil)
+	if err != nil {
+		fmt.Printf("Error during graceful shutdown: %s\n", err)
+	}
+
 }
