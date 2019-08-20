@@ -1,13 +1,14 @@
 package main
 
 import (
-	"cast"
-	"configreader"
 	"flag"
 	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
+
+	"github.com/viert/flamecast/cast"
+	"github.com/viert/flamecast/configreader"
 )
 
 func usage() {

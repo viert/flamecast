@@ -1,11 +1,12 @@
 package cast
 
 import (
-	"configreader"
-	logging "github.com/op/go-logging"
 	stdlog "log"
 	"net/http"
 	"os"
+
+	logging "github.com/op/go-logging"
+	"github.com/viert/flamecast/configreader"
 )
 
 const (

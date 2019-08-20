@@ -1,11 +1,12 @@
 package cast
 
 import (
-	"configreader"
 	"encoding/json"
-	"icy"
 	"net/http"
 	"time"
+
+	"github.com/viert/flamecast/configreader"
+	"github.com/viert/flamecast/icy"
 )
 
 type (

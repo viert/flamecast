@@ -1,17 +1,18 @@
 package cast
 
 import (
-	"configreader"
 	"errors"
 	"fmt"
-	"github.com/viert/endless"
-	"icy"
-	"mpeg"
 	"net/http"
 	"net/url"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/viert/endless"
+	"github.com/viert/flamecast/configreader"
+	"github.com/viert/flamecast/icy"
+	"github.com/viert/flamecast/mpeg"
 )
 
 type (

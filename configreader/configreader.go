@@ -4,10 +4,11 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	logging "github.com/op/go-logging"
-	"github.com/viert/properties"
 	"net/url"
 	"strings"
+
+	logging "github.com/op/go-logging"
+	"github.com/viert/properties"
 )
 
 // Default configuration values
