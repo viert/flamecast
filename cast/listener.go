@@ -247,6 +247,7 @@ func handleListener(rw http.ResponseWriter, req *http.Request) {
 	metaRequested := req.Header.Get("Icy-MetaData")
 	if metaRequested == "1" {
 		metaInt = defaultMetaInterval
+		logger.Debugf("Icy metadata requested, interval set to %d", defaultMetaInterval)
 	}
 	if metaInt != 0 {
 		rw.Header().Set("icy-metaint", fmt.Sprintf("%d", metaInt))
@@ -280,10 +281,16 @@ func handleListener(rw http.ResponseWriter, req *http.Request) {
 			}
 		} else {
 			if !source.active {
-				logger.Noticef("SOURCE \"%s\": source has stopped, moving listener %s to fallback",
-					sourcePath, lr.key)
-				source.listeners.remove(lr)
-				altSource.listeners.add(lr)
+				if altSource == nil {
+					logger.Noticef("SOURCE \"%s\": source has stopped, no alternative source is defined, giving up with listener %s",
+						sourcePath, lr.key)
+					break
+				} else {
+					logger.Noticef("SOURCE \"%s\": source has stopped, moving listener %s to fallback",
+						sourcePath, lr.key)
+					source.listeners.remove(lr)
+					altSource.listeners.add(lr)
+				}
 				srcReader = altSource.Buffer.NewReader(altSource.Buffer.MidPoint())
 				synced = false
 				isAlt = true
