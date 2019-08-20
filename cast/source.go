@@ -1,21 +1,21 @@
 package cast
 
 import (
-	"configreader"
-	"github.com/viert/endless"
-	"icy"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/viert/endless"
+	"github.com/viert/flamecast/configreader"
+	"github.com/viert/flamecast/icy"
 )
 
 const (
-	BlocksWrittenUntilActive = 4
-	DataBufferSize           = 4096
-	EndlessSize              = 16 * 4096
-	InitialListenersCount    = 256
-	PullRetriesMax           = 5
+	blocksWrittenUntilActive = 4
+	dataBufferSize           = 4096
+	endlessSize              = 16 * 4096
+	pullRetriesMax           = 5
 )
 
 type (
@@ -33,10 +33,11 @@ type (
 	}
 )
 
+// NewSource creates and initializes a new Source instance
 func NewSource(config *configreader.SourceConfig) *Source {
 	return &Source{
 		config,
-		endless.NewEndless(EndlessSize),
+		endless.NewEndless(endlessSize),
 		make(icy.MetaData),
 		&icy.MetaFrame{0},
 		newListenerSlice(512),
@@ -47,7 +48,7 @@ func NewSource(config *configreader.SourceConfig) *Source {
 }
 
 func pullSource(source *Source) {
-	retriesLeft := PullRetriesMax
+	retriesLeft := pullRetriesMax
 
 	sourceURL := source.config.SourcePullURL.String()
 	sourcePath := source.config.Path
@@ -84,7 +85,7 @@ retryLoop:
 
 		mfChannel := make(chan icy.MetaFrame, 1)
 		reader := icy.NewReader(resp.Body, int(metaInterval), mfChannel)
-		dataBuf := make([]byte, DataBufferSize)
+		dataBuf := make([]byte, dataBufferSize)
 
 		iterations := 0
 
@@ -111,7 +112,7 @@ retryLoop:
 
 			if !source.active {
 				iterations++
-				if iterations == BlocksWrittenUntilActive {
+				if iterations == blocksWrittenUntilActive {
 					logger.Noticef("SOURCE \"%s\": source buffer filled, source is now active", sourcePath)
 					source.active = true
 					source.Started = time.Now()
@@ -164,7 +165,7 @@ func pushSource(rw http.ResponseWriter, req *http.Request) {
 	bufrw.Flush()
 
 	iterations := 0
-	dataBuf := make([]byte, DataBufferSize)
+	dataBuf := make([]byte, dataBufferSize)
 
 	for {
 		n, err := bufrw.Read(dataBuf)
@@ -176,7 +177,7 @@ func pushSource(rw http.ResponseWriter, req *http.Request) {
 		source.Buffer.Write(dataBuf[:n])
 		if !source.active {
 			iterations++
-			if iterations == BlocksWrittenUntilActive {
+			if iterations == blocksWrittenUntilActive {
 				logger.Noticef("SOURCE \"%s\": source buffer filled, source is now active", sourcePath)
 				source.active = true
 				source.Started = time.Now()

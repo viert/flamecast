@@ -1,0 +1,13 @@
+version: 2
+jobs:
+  build:
+    docker:
+      - image: circleci/golang:1.12.9
+    working_directory: /tmp/build
+    steps:
+      - checkout
+      - run:
+          name: build
+          command: go build
+      - store_artifacts:
+          path: /tmp/build/flamecast
